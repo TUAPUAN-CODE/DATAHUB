@@ -111,10 +111,10 @@ Pick one option:
 
 ```bash
 # terminal 1
-cd server && npm run dev          # http://localhost:4000  (API + websockets)
+cd server && npm run dev          # http://172.48.0.116:4000  (API + websockets)
 
 # terminal 2
-cd client && npm install && npm run dev   # http://localhost:5173  (proxies /api, /uploads, /socket.io)
+cd client && npm install && npm run dev   # http://172.48.0.116:5175  (proxies /api, /uploads, /socket.io)
 ```
 
 ### 3.3 Demo accounts (created by the seed)
@@ -134,14 +134,14 @@ cd client && npm install && npm run dev   # http://localhost:5173  (proxies /api
 | Variable | Default | Notes |
 |---|---|---|
 | `PORT` | `4000` | |
-| `DB_HOST` / `DB_PORT` | `localhost` / `1433` | |
+| `DB_HOST` / `DB_PORT` | `172.48.0.116` / `1433` | |
 | `DB_INSTANCE` | – | Named instance, e.g. `SQLEXPRESS`. When set, the port is ignored and SQL Browser must be running. |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | – / – / `DataSheetPro` | |
 | `DB_ENCRYPT` / `DB_TRUST_CERT` | `false` / `true` | Use `true` / `false` with a real certificate, e.g. on Azure SQL. |
 | `JWT_SECRET` | **required** | 32+ random characters. |
 | `ACCESS_TOKEN_TTL` / `REFRESH_TOKEN_DAYS` | `15m` / `7` | The refresh token is an httpOnly cookie that rotates on every use. |
-| `COOKIE_SECURE` | `true` in production | Set to `false` only when serving over plain HTTP on a host other than localhost. |
-| `CORS_ORIGIN` | `http://localhost:5173` | Comma-separated list. |
+| `COOKIE_SECURE` | `true` in production | Set to `false` only when serving over plain HTTP on a host other than 172.48.0.116. |
+| `CORS_ORIGIN` | `http://172.48.0.116:5175` | Comma-separated list. |
 | `UPLOAD_DIR` / `MAX_UPLOAD_MB` | `uploads` / `5` | Dashboard images and avatars. |
 | `SHOW_LOCKED_ITEMS` | `true` | Show files and folders you can't open with a padlock, so users can request access. |
 | `APP_TZ_OFFSET_MINUTES` | `420` | Bangkok (UTC+7). Used for date bucketing and day boundaries. |
@@ -167,7 +167,7 @@ export JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toStr
 docker compose up -d --build
 docker compose exec app node dist/scripts/initDb.js
 docker compose exec app node dist/scripts/seed.js      # optional demo data
-# → http://localhost:4000
+# → http://172.48.0.116:4000
 ```
 
 **Backups:** a regular SQL Server backup of `DataSheetPro` plus the `uploads/` folder is enough.

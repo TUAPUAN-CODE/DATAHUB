@@ -76,7 +76,9 @@ initSocket(server);
 
 getPool()
   .then(() => {
-    server.listen(env.port, () => logger.info(`DataSheet Pro API listening on http://localhost:${env.port}`));
+    server.listen(env.port, '0.0.0.0', () =>
+      logger.info(`DataSheet Pro API listening on http://0.0.0.0:${env.port} (LAN: http://172.48.0.116:${env.port})`)
+    );
     void purgeExpiredTrash();
     setInterval(() => void purgeExpiredTrash(), 6 * 3600_000).unref();
   })

@@ -23,7 +23,7 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-YourStrong!Passw0rd}"
       DB_NAME: DataSheetPro
       JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET (32+ chars)}"
-      CORS_ORIGIN: "${PUBLIC_URL:-http://localhost:4000}"
+      CORS_ORIGIN: "${PUBLIC_URL:-http://172.48.0.116:4000}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       SEED_ADMIN_PASSWORD: "${SEED_ADMIN_PASSWORD:-Admin@123}"
     ports: ["4000:4000"]

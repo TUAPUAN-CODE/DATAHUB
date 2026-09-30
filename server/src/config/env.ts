@@ -17,7 +17,7 @@ export const env = {
   port: num(process.env.PORT, 4000),
   tzOffsetMinutes: num(process.env.APP_TZ_OFFSET_MINUTES, 420),
   db: {
-    server: process.env.DB_HOST ?? 'localhost',
+    server: process.env.DB_HOST ?? '172.48.0.116',
     port: num(process.env.DB_PORT, 1433),
     instanceName: process.env.DB_INSTANCE || undefined,
     database: process.env.DB_NAME ?? 'DataSheetPro',
@@ -33,9 +33,9 @@ export const env = {
     accessTtl: process.env.JWT_ACCESS_TTL ?? '1h',
     refreshDays: num(process.env.REFRESH_TOKEN_DAYS, 7),
   },
-  /** Secure cookies need HTTPS (localhost is exempt in modern browsers). Override with COOKIE_SECURE=false behind plain HTTP. */
+  /** Secure cookies need HTTPS (172.48.0.116 is exempt in modern browsers). Override with COOKIE_SECURE=false behind plain HTTP. */
   cookieSecure: bool(process.env.COOKIE_SECURE, nodeEnv === 'production'),
-  corsOrigins: (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
+  corsOrigins: (process.env.CORS_ORIGIN ?? 'http://172.48.0.116:5175')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
