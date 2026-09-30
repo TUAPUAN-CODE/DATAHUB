@@ -35,8 +35,8 @@ function UserModal({ open, onClose, user, onSaved }: { open: boolean; onClose: (
         <Field label="ชื่อผู้ใช้" required hint="a-z 0-9 . _ - อย่างน้อย 3 ตัว"><TextInput value={f.username} disabled={!!user} onChange={(e) => setF({ ...f, username: e.target.value })} /></Field>
         <Field label="อีเมล" required><TextInput type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
         {!user && <Field label="รหัสผ่านเริ่มต้น" required hint="อย่างน้อย 8 ตัวอักษร"><TextInput type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="new-password" /></Field>}
-        <Field label="บทบาท" hint={f.role === 'user' ? 'กรอกและแก้ไขข้อมูลในไฟล์ที่ได้รับสิทธิ์' : f.role === 'master' ? 'สร้างฟอร์มเอกสาร จัดการโฟลเดอร์ที่ตัวเองสร้างหรือได้รับสิทธิ์' : 'ทำได้ทุกอย่างในระบบ'}>
-          <Select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}><option value="user">User</option><option value="master">Master</option><option value="admin">Admin</option></Select>
+        <Field label="บทบาท" hint={f.role === 'viewer' ? 'ดูข้อมูลได้อย่างเดียว กรอก/แก้ไขไม่ได้' : f.role === 'user' ? 'กรอกข้อมูลในตารางของไฟล์ที่ได้รับสิทธิ์ แต่แก้ไขคอลัมน์/โครงสร้างไม่ได้' : f.role === 'master' ? 'สร้างฟอร์มเอกสาร จัดการโฟลเดอร์ที่ตัวเองสร้างหรือได้รับสิทธิ์' : 'ทำได้ทุกอย่างในระบบ'}>
+          <Select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}><option value="viewer">Viewer (ดูอย่างเดียว)</option><option value="user">User (กรอกข้อมูล)</option><option value="master">Master</option><option value="admin">Admin</option></Select>
         </Field>
       </div>
     </Modal>
@@ -73,7 +73,7 @@ export default function UsersPage() {
         actions={<Button icon={<UserPlus className="h-4 w-4" />} onClick={() => setEdit({ user: null })}>เพิ่มผู้ใช้</Button>} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <TextInput icon={<Search />} value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="ค้นหาชื่อ ชื่อผู้ใช้ หรืออีเมล" className="w-full sm:w-72" />
-        <Select value={role} onChange={(e) => { setRole(e.target.value); setPage(1); }} className="w-40"><option value="">ทุกบทบาท</option><option value="admin">Admin</option><option value="master">Master</option><option value="user">User</option></Select>
+        <Select value={role} onChange={(e) => { setRole(e.target.value); setPage(1); }} className="w-40"><option value="">ทุกบทบาท</option><option value="admin">Admin</option><option value="master">Master</option><option value="user">User</option><option value="viewer">Viewer</option></Select>
         <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="w-40"><option value="">ทุกสถานะ</option><option value="active">ใช้งานอยู่</option><option value="inactive">ปิดการใช้งาน</option></Select>
         {picked.size > 0 && (
           <div className="ml-auto flex flex-wrap items-center gap-1.5 rounded-xl bg-primary/10 px-2 py-1">
@@ -81,7 +81,7 @@ export default function UsersPage() {
             <Button size="sm" variant="ghost" icon={<UserCheck className="h-3.5 w-3.5" />} onClick={() => bulk('activate')}>เปิดใช้งาน</Button>
             <Button size="sm" variant="ghost" icon={<UserX className="h-3.5 w-3.5" />} onClick={() => bulk('deactivate')}>ปิดใช้งาน</Button>
             <Select className="w-36 [&>select]:!h-8 [&>select]:text-xs" value="" onChange={(e) => e.target.value && bulk('set_role', e.target.value as Role)}>
-              <option value="">เปลี่ยนบทบาท…</option><option value="user">User</option><option value="master">Master</option><option value="admin">Admin</option>
+              <option value="">เปลี่ยนบทบาท…</option><option value="viewer">Viewer</option><option value="user">User</option><option value="master">Master</option><option value="admin">Admin</option>
             </Select>
           </div>
         )}

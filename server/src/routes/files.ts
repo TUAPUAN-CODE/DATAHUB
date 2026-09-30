@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { Router } from 'express';
+import { isBasicRole } from '../middleware/auth';
 import { z } from 'zod';
 import { q, q1, T, withTx, Tx } from '../config/db';
 import { audit } from '../shared/audit';
@@ -97,7 +98,7 @@ router.post(
   '/files',
   ah(async (req, res) => {
     const u = req.user!;
-    if (u.role === 'user') throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่สร้างไฟล์ได้');
+    if (isBasicRole(u.role)) throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่สร้างไฟล์ได้');
     const body = parse(createSchema, req.body);
     await requireFolder(u, body.folderId, LV.write);
     assertUniqueNames(body.sheets.map((s) => s.name), 'ชีต');
@@ -212,7 +213,7 @@ router.post(
   ah(async (req, res) => {
     const id = pid(req);
     const u = req.user!;
-    if (u.role === 'user') throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่ทำสำเนาไฟล์ได้');
+    if (isBasicRole(u.role)) throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่ทำสำเนาไฟล์ได้');
     const { file } = await requireFile(u, id, LV.read);
     const body = parse(z.object({ name: z.string().trim().min(1).max(300).optional(), folderId: zId.optional(), includeData: z.boolean().default(false) }), req.body);
     const folderId = body.folderId ?? file.folder_id;

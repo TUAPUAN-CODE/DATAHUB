@@ -45,4 +45,19 @@ export const env = {
   maxUploadMb: num(process.env.MAX_UPLOAD_MB, 5),
   trashRetentionDays: num(process.env.TRASH_RETENTION_DAYS, 30),
   serveClientDir: process.env.SERVE_CLIENT_DIR || '',
+  /** Public base URL of the app (used for OAuth redirect URIs). Falls back to the request host. */
+  publicUrl: (process.env.PUBLIC_URL ?? '').replace(/\/+$/, ''),
+  oauth: {
+    google: { clientId: process.env.GOOGLE_CLIENT_ID ?? '', clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '' },
+    microsoft: {
+      clientId: process.env.MS_CLIENT_ID ?? '',
+      clientSecret: process.env.MS_CLIENT_SECRET ?? '',
+      /** common | organizations | consumers | <tenant id or domain> */
+      tenant: process.env.MS_TENANT ?? 'common',
+    },
+    /** Create an account (role: user) on first social login. Default: only people an admin already added by e-mail may sign in. */
+    autoCreate: bool(process.env.OAUTH_AUTO_CREATE, false),
+    /** Comma separated e-mail domains that may use social login (empty = any) */
+    allowedDomains: (process.env.OAUTH_ALLOWED_DOMAINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+  },
 };

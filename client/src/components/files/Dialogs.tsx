@@ -7,7 +7,7 @@ import { fmtDateTime, PERM_LABEL } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { toast } from '@/store/ui';
-import { AccessGrant, FolderItem, LV, Perm } from '@/types';
+import { AccessGrant, FolderItem, LV, Perm, isBasicRole } from '@/types';
 import { Button } from '../ui/Button';
 import { Field, Select, TextArea, TextInput, Toggle } from '../ui/Inputs';
 import { Avatar, ColorInput, PermBadge, RoleBadge, Skeleton } from '../ui/misc';
@@ -94,7 +94,7 @@ export function MoveDialog({ open, onClose, item, onDone }: { open: boolean; onC
   return (
     <Modal open={open} onClose={onClose} title={`ย้าย “${item?.name ?? ''}”`} description="เลือกโฟลเดอร์ปลายทางที่คุณมีสิทธิ์เขียน" size="sm"
       footer={<>
-        {item?.type === 'folder' && role !== 'user' && <Button variant="ghost" className="mr-auto" onClick={() => submit(true)} disabled={busy}>ย้ายไประดับบนสุด</Button>}
+        {item?.type === 'folder' && !isBasicRole(role) && <Button variant="ghost" className="mr-auto" onClick={() => submit(true)} disabled={busy}>ย้ายไประดับบนสุด</Button>}
         <Button variant="secondary" onClick={onClose}>ยกเลิก</Button>
         <Button onClick={() => submit(false)} loading={busy} disabled={!target}>ย้ายมาที่นี่</Button>
       </>}>
@@ -168,7 +168,8 @@ export function ShareDialog({ open, onClose, target }: { open: boolean; onClose:
   const grant = async (uid: string, p: Perm, exp: string | null) => {
     try {
       const r = await accessApi.grant(target.type, target.id, { userId: uid, permission: p, expiresAt: exp });
-      if (r.cappedToWrite) toast.info('ผู้ใช้ระดับ User ใช้สิทธิ์ได้สูงสุด "แก้ไขข้อมูล"');
+      if (r.cappedTo === 'write') toast.info('ผู้ใช้ระดับ User ใช้สิทธิ์ได้สูงสุด "แก้ไขข้อมูล"');
+      if (r.cappedTo === 'read') toast.info('ผู้ใช้ระดับ Viewer ใช้สิทธิ์ได้สูงสุด "ดูข้อมูล"');
       void reload(true);
     } catch (e) { toast.error(e); }
   };
@@ -245,7 +246,7 @@ export function RequestAccessForm({ target, onDone, compact }: { target: { type:
         <Field label="ระดับสิทธิ์ที่ขอ">
           <Select value={perm} onChange={(e) => setPerm(e.target.value as Perm)}>
             <option value="read">{PERM_LABEL.read}</option><option value="write">{PERM_LABEL.write}</option>
-            {role !== 'user' && <option value="manage">{PERM_LABEL.manage}</option>}
+            {!isBasicRole(role) && <option value="manage">{PERM_LABEL.manage}</option>}
           </Select>
         </Field>
         <Field label="ระยะเวลา">

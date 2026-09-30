@@ -25,7 +25,7 @@ import { fmtDateTime, levelToPerm } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { confirmDialog, toast } from '@/store/ui';
-import { Column, LV, Row } from '@/types';
+import { Column, LV, Row, isBasicRole } from '@/types';
 
 function NoAccessView({ info, onRetry }: { info: ReturnType<typeof apiError>; onRetry: () => void }) {
   const d = info.details ?? {};
@@ -146,7 +146,7 @@ export default function FilePage() {
         <Popover open={more} onClose={() => setMore(false)} anchor={moreBtn.current} placement="bottom-end" width={240}>
           <MenuList onClose={() => setMore(false)} items={[
             ...(canManage ? [{ label: 'เปลี่ยนชื่อ / สี', icon: <Pencil />, onClick: () => setModal('rename') }] : []),
-            ...(role !== 'user' ? [{ label: 'ทำสำเนาไฟล์', icon: <Copy />, onClick: () => setModal('dup') }] : []),
+            ...(!isBasicRole(role) ? [{ label: 'ทำสำเนาไฟล์', icon: <Copy />, onClick: () => setModal('dup') }] : []),
             ...(canManage ? [{ label: 'ประวัติการแก้ไขของไฟล์', icon: <History />, onClick: () => nav(`/audit?fileId=${f.id}`) }] : []),
             { label: 'ส่งออก Excel (.xlsx)', icon: <Download />, onClick: () => void exportRows('xlsx') },
             { label: 'ส่งออก CSV', icon: <Download />, onClick: () => void exportCsv() },

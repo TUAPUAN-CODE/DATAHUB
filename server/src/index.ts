@@ -30,6 +30,7 @@ import searchRoutes from './routes/search';
 import sheetRoutes from './routes/sheets';
 import themeRoutes from './routes/themes';
 import trashRoutes from './routes/trash';
+import oauthRoutes from './routes/oauth';
 import { shareManageRouter, sharePublicRouter } from './routes/share';
 import uploadRoutes from './routes/uploads';
 import userRoutes from './routes/users';
@@ -54,6 +55,7 @@ app.get('/api/health', async (_req, res) => {
 
 app.use('/api', rateLimit({ windowMs: 60_000, max: env.rateLimitPerMin, standardHeaders: true, legacyHeaders: false }));
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', oauthRoutes);
 app.use('/api', sharePublicRouter);
 app.use('/api', authenticate);
 for (const r of [

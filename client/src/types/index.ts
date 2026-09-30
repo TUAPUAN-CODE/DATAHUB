@@ -1,4 +1,6 @@
-export type Role = 'user' | 'master' | 'admin';
+export type Role = 'viewer' | 'user' | 'master' | 'admin';
+/** viewer / user cannot build files, folders or manage sharing */
+export const isBasicRole = (r?: Role | string | null) => r === 'user' || r === 'viewer';
 export type Perm = 'none' | 'read' | 'write' | 'manage';
 export const LV = { none: 0, read: 1, write: 2, manage: 3 } as const;
 

@@ -28,6 +28,23 @@ The UI is in Thai. This README is in English and uses Thai terms where helpful.
 | UI customization | Every colour, radius, spacing and font size can be changed. **Google Fonts** can be chosen in the app (42 curated fonts, including Thai, plus any other font by name). Per-component overrides are available for sidebar, top bar, card, button, input, table header/cell, modal and widget. Themes are saved per user; admins can set an organisation default. |
 | SharePoint-like file manager, icons, animations | Activity feed cards ("Viewed/Edited N min ago"), grid/list views, and folder names in accent colours. A file card expands into the workspace when opened. Rows animate in, and remote edits flash. |
 
+### What's new
+
+| Area | Feature |
+|---|---|
+| Dashboard | **Slicers** (filter widgets): dropdown with search, dropdown, checkbox list, buttons, radio, text search, number range, date range. They filter every widget on the same sheet (or only the ones you pick). |
+| Dashboard | **Card** with heading / sub-heading / description (each can be shown or hidden), optional icon and an optional live number from a table. |
+| Dashboard | **Condition card**: compares value A with value B (each from any sheet in any file) using `<  <=  >  >=  =  !=` and shows your pass / fail message and colour. |
+| Dashboard | New charts: **Pareto, Histogram, Heatmap, X chart (individuals), X-bar chart, 100% stacked bar**. |
+| Dashboard | **Layer manager** (drag to reorder, show/hide, lock) and **full screen** presentation mode. |
+| Dashboard | Power BI-style format pane: axes, data labels, legend, gridlines, number format, reference / average lines, combo series with a secondary axis, control limits (UCL/LCL/USL/LSL). |
+| Files | **Excel (.xlsx) export**, and **share links** (`/s/<token>`): visitors without an account get a read-only view; signed-in users receive the permission chosen for the link. |
+| Login | **Google / Microsoft sign-in** (see `server/.env.example`). |
+| Roles | `viewer` (read only), `user` (enters data in tables; cannot change columns or structure), `master`, `admin`. |
+| Sidebar | **Dashboards** page listing every dashboard you can open; row delete button (hover the row number, or select rows and use the toolbar). |
+
+> Existing databases: start the API once (or run `npm run db:init`) – `database/02_share_links_oauth.sql` is applied automatically and is safe to re-run.
+
 ### Dashboard details
 
 The dashboard supports:

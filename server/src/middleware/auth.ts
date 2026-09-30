@@ -4,9 +4,12 @@ import { env } from '../config/env';
 import { q1 } from '../config/db';
 import { AppError, forbidden } from '../shared/http';
 
-export type Role = 'user' | 'master' | 'admin';
-export const ROLES: Role[] = ['user', 'master', 'admin'];
-export const ROLE_ID: Record<Role, number> = { user: 1, master: 2, admin: 3 };
+/** viewer = read only · user = data entry (cannot change structure) · master = builds forms/folders · admin = everything */
+export type Role = 'viewer' | 'user' | 'master' | 'admin';
+export const ROLES: Role[] = ['viewer', 'user', 'master', 'admin'];
+export const ROLE_ID: Record<Role, number> = { viewer: 0, user: 1, master: 2, admin: 3 };
+/** Roles without any builder / manager privileges */
+export const isBasicRole = (r: Role) => r === 'user' || r === 'viewer';
 
 export interface AuthUser {
   id: string;

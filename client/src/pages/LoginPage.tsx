@@ -1,8 +1,9 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, Lock, User as UserIcon } from 'lucide-react';
-import { apiError } from '@/api/client';
+import { apiError, http } from '@/api/client';
+import { authApi } from '@/api/endpoints';
 import { Button } from '@/components/ui/Button';
 import { Field, TextInput } from '@/components/ui/Inputs';
 import { useAuth } from '@/store/auth';
@@ -16,6 +17,16 @@ export default function LoginPage() {
   const [show, setShow] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [providers, setProviders] = useState<{ google: boolean; microsoft: boolean }>({ google: false, microsoft: false });
+  useEffect(() => {
+    authApi.providers().then(setProviders).catch(() => undefined);
+    const e = new URLSearchParams(window.location.search).get('oauth_error');
+    if (e) { setErr(e); window.history.replaceState(null, '', '/login'); }
+  }, []);
+  const social = (p: 'google' | 'microsoft') => {
+    const from = loc.state?.from ?? '/';
+    window.location.href = `${http.defaults.baseURL}/auth/oauth/${p}/start?from=${encodeURIComponent(from)}`;
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -70,6 +81,25 @@ export default function LoginPage() {
             {err && <motion.p initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{err}</motion.p>}
             <Button type="submit" size="lg" className="w-full" loading={busy}>เข้าสู่ระบบ</Button>
           </div>
+          {(providers.google || providers.microsoft) && (
+            <div className="mt-5">
+              <div className="mb-4 flex items-center gap-3 text-xs text-muted"><span className="h-px flex-1 bg-line" />หรือเข้าสู่ระบบด้วย<span className="h-px flex-1 bg-line" /></div>
+              <div className="space-y-2.5">
+                {providers.google && (
+                  <button type="button" onClick={() => social('google')} className="flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-line bg-surface text-sm font-medium transition-colors hover:bg-ink/5">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden><path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.6 3.8-5.5 3.8-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.4 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12z" /></svg>
+                    Google / Gmail
+                  </button>
+                )}
+                {providers.microsoft && (
+                  <button type="button" onClick={() => social('microsoft')} className="flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-line bg-surface text-sm font-medium transition-colors hover:bg-ink/5">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden><path fill="#F25022" d="M2 2h9.5v9.5H2z" /><path fill="#7FBA00" d="M12.5 2H22v9.5h-9.5z" /><path fill="#00A4EF" d="M2 12.5h9.5V22H2z" /><path fill="#FFB900" d="M12.5 12.5H22V22h-9.5z" /></svg>
+                    Microsoft (Outlook / Office 365)
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {import.meta.env.DEV && (
             <p className="mt-6 rounded-lg bg-ink/5 px-3 py-2 text-xs text-muted">บัญชีทดลอง: admin / Admin@123 · master / Master@123 · user / User@1234</p>
           )}

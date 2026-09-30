@@ -194,7 +194,7 @@ export function ChartBody({ w, data }: { w: Widget; data: WidgetData }) {
       ifOverflow="extendDomain" label={r.label ? { value: r.label, fill: r.color || colors.muted, fontSize: 11, position: 'insideTopRight' } : undefined} />
   ));
 
-  const curve = cfg.curve ?? 'monotone';
+  const curve = isSpc ? 'linear' : cfg.curve ?? 'monotone';
   const lw = cfg.lineWidth ?? 2.5;
   const showDots = cfg.dots ?? (rows.length <= 31);
   const radius = Number(cfg.barRadius ?? 6);

@@ -5,7 +5,7 @@ import { filesApi, foldersApi } from '@/api/endpoints';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { confirmDialog, toast } from '@/store/ui';
-import { LV } from '@/types';
+import { LV, isBasicRole } from '@/types';
 import { Anchor, MenuItemDef, MenuList, Popover } from '../ui/Popover';
 import { DuplicateDialog, MetaModal, MoveDialog, RequestAccessDialog, ShareDialog } from './Dialogs';
 import type { Item } from './ItemViews';
@@ -42,14 +42,14 @@ export function useItemActions(reload: () => void) {
     const out: MenuItemDef[] = [
       { label: 'เปิด', icon: <ExternalLink />, onClick: () => nav(it.kind === 'folder' ? `/folders/${it.data.id}` : `/files/${it.data.id}`) },
     ];
-    if (lvl < LV.write || (it.kind === 'file' && lvl < LV.manage && role !== 'user'))
+    if (lvl < LV.write || (it.kind === 'file' && lvl < LV.manage && !isBasicRole(role)))
       out.push({ label: 'ขอสิทธิ์เพิ่ม', icon: <KeyRound />, onClick: () => setDialog({ kind: 'request', item: it }) });
     if (manage) {
       out.push({ divider: true }, { label: 'เปลี่ยนชื่อ / สี', icon: <Pencil />, onClick: () => setDialog({ kind: 'rename', item: it }) },
         { label: 'แชร์และสิทธิ์', icon: <Share2 />, onClick: () => setDialog({ kind: 'share', item: it }) },
         { label: 'ย้าย', icon: <FolderInput />, onClick: () => setDialog({ kind: 'move', item: it }) });
     }
-    if (it.kind === 'file' && lvl >= LV.read && role !== 'user') out.push({ label: 'ทำสำเนา', icon: <Copy />, onClick: () => setDialog({ kind: 'dup', item: it }) });
+    if (it.kind === 'file' && lvl >= LV.read && !isBasicRole(role)) out.push({ label: 'ทำสำเนา', icon: <Copy />, onClick: () => setDialog({ kind: 'dup', item: it }) });
     if (manage) out.push({ divider: true }, { label: 'ลบ', icon: <Trash2 />, danger: true, onClick: () => void remove(it) });
     return out;
   };

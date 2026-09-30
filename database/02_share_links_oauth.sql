@@ -33,3 +33,10 @@ BEGIN
     CREATE INDEX IX_OAuth_User ON OAuthIdentities(user_id);
 END
 GO
+
+-- New lowest role: "viewer" (read only). role_id 0 keeps the "higher id = more privileges" ordering.
+IF NOT EXISTS (SELECT 1 FROM Roles WHERE role_id = 0)
+    INSERT INTO Roles (role_id, role_name, description) VALUES (0, N'viewer', N'ดูข้อมูลอย่างเดียว ไม่สามารถกรอก/แก้ไขข้อมูล');
+GO
+UPDATE Roles SET description = N'กรอกข้อมูลในตารางของไฟล์ที่ได้รับสิทธิ์ แต่แก้ไขคอลัมน์/โครงสร้างไม่ได้' WHERE role_id = 1;
+GO

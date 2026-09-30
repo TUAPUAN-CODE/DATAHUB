@@ -120,6 +120,7 @@ export class PermCtx {
   }
 
   private cap(l: number) {
+    if (this.user.role === 'viewer') return Math.min(l, LV.read);
     return this.user.role === 'user' ? Math.min(l, LV.write) : l;
   }
 

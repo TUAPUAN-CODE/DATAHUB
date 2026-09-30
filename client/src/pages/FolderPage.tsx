@@ -19,7 +19,7 @@ import { levelToPerm } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { toast } from '@/store/ui';
-import { LV } from '@/types';
+import { LV, isBasicRole } from '@/types';
 
 export default function FolderPage() {
   const { id = 'root' } = useParams();
@@ -58,7 +58,7 @@ export default function FolderPage() {
 
   const folder = data?.folder;
   const level = data?.level ?? 0;
-  const canCreate = role !== 'user' && (id === 'root' ? true : level >= LV.write);
+  const canCreate = !isBasicRole(role) && (id === 'root' ? true : level >= LV.write);
   const crumbs = [{ id: 'root', name: 'ไฟล์ทั้งหมด' }, ...(data?.breadcrumb ?? [])];
 
   return (

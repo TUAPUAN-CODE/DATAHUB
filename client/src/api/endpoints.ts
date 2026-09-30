@@ -9,6 +9,7 @@ export const authApi = {
   refresh: () => post<{ accessToken: string; user: User }>('/auth/refresh'),
   logout: () => post('/auth/logout'),
   me: () => get<User>('/auth/me'),
+  providers: () => get<{ google: boolean; microsoft: boolean }>('/auth/providers'),
   changePassword: (currentPassword: string, newPassword: string) => post('/auth/change-password', { currentPassword, newPassword }),
 };
 
@@ -98,7 +99,7 @@ export const cellsApi = {
 export const accessApi = {
   get: (type: 'file' | 'folder', id: string) => get<AccessList>(`/${type}s/${id}/access`),
   grant: (type: 'file' | 'folder', id: string, b: { userId: string; permission: Perm; expiresAt?: string | null }) =>
-    put<{ granted: boolean; cappedToWrite: boolean }>(`/${type}s/${id}/access`, b),
+    put<{ granted: boolean; cappedTo: 'read' | 'write' | null }>(`/${type}s/${id}/access`, b),
   revoke: (type: 'file' | 'folder', id: string, userId: string) => del(`/${type}s/${id}/access/${userId}`),
 };
 

@@ -12,6 +12,7 @@ import { fmtDateTime, relTime } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { toast } from '@/store/ui';
+import { isBasicRole } from '@/types';
 import type { AccessRequest, Perm } from '@/types';
 
 const STATUS: Record<string, { tone: 'amber' | 'green' | 'red' | 'gray'; label: string }> = {
@@ -21,7 +22,7 @@ const STATUS: Record<string, { tone: 'amber' | 'green' | 'red' | 'gray'; label: 
 export default function AccessRequestsPage() {
   const role = useAuth((s) => s.user?.role);
   const [sp, setSp] = useSearchParams();
-  const box = (sp.get('box') === 'review' && role !== 'user' ? 'review' : 'mine') as 'mine' | 'review';
+  const box = (sp.get('box') === 'review' && !isBasicRole(role) ? 'review' : 'mine') as 'mine' | 'review';
   const [status, setStatus] = useState<'pending' | 'all'>('pending');
   const { data, loading, reload } = useLoad(() => requestsApi.list(box, status), [box, status]);
   const [review, setReview] = useState<{ req: AccessRequest; action: 'approve' | 'reject' } | null>(null);
@@ -48,7 +49,7 @@ export default function AccessRequestsPage() {
     <Page>
       <PageHeader icon={<KeyRound />} title="คำขอสิทธิ์เข้าถึง" subtitle={box === 'review' ? 'คำขอที่คุณมีสิทธิ์พิจารณา' : 'คำขอที่คุณส่งไป'}
         actions={<>
-          {role !== 'user' && <Segmented value={box} onChange={(v) => setSp({ box: v })} options={[{ value: 'review', label: 'รอฉันอนุมัติ' }, { value: 'mine', label: 'คำขอของฉัน' }]} />}
+          {!isBasicRole(role) && <Segmented value={box} onChange={(v) => setSp({ box: v })} options={[{ value: 'review', label: 'รอฉันอนุมัติ' }, { value: 'mine', label: 'คำขอของฉัน' }]} />}
           <Segmented value={status} onChange={setStatus} options={[{ value: 'pending', label: 'รออนุมัติ' }, { value: 'all', label: 'ทั้งหมด' }]} />
         </>} />
       {loading ? <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-theme" />)}</div>

@@ -69,5 +69,5 @@ setAuthLostHandler(() => {
   useAuth.setState({ user: null, status: 'guest' });
 });
 
-const RANK: Record<Role, number> = { user: 1, master: 2, admin: 3 };
+const RANK: Record<Role, number> = { viewer: 0, user: 1, master: 2, admin: 3 };
 export const useIsAtLeast = (role: Role) => useAuth((s) => (s.user ? RANK[s.user.role] >= RANK[role] : false));
