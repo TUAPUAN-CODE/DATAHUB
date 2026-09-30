@@ -1,0 +1,156 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { ArrowDownAZ, ChevronRight, FilePlus2, FolderOpen, FolderPlus, LayoutGrid, List, Lock, Plus, Search, Share2 } from 'lucide-react';
+import { foldersApi } from '@/api/endpoints';
+import { MetaModal, RequestAccessForm, ShareDialog } from '@/components/files/Dialogs';
+import { FolderGlyph } from '@/components/files/icons';
+import { Item, ItemCard, ItemRow } from '@/components/files/ItemViews';
+import { useItemActions } from '@/components/files/useItemActions';
+import { dropInto, DRAG_MIME } from '@/components/layout/FolderTree';
+import { Page } from '@/components/layout/AppShell';
+import { Button } from '@/components/ui/Button';
+import { Segmented, Select, TextInput } from '@/components/ui/Inputs';
+import { EmptyState, PermBadge, Skeleton, StarButton } from '@/components/ui/misc';
+import { MenuList, Popover } from '@/components/ui/Popover';
+import { useLoad } from '@/hooks';
+import { cn } from '@/lib/cn';
+import { levelToPerm } from '@/lib/format';
+import { useAuth } from '@/store/auth';
+import { useData } from '@/store/data';
+import { toast } from '@/store/ui';
+import { LV } from '@/types';
+
+export default function FolderPage() {
+  const { id = 'root' } = useParams();
+  const nav = useNavigate();
+  const role = useAuth((s) => s.user?.role);
+  const { data, loading, error, reload } = useLoad(() => foldersApi.contents(id), [id]);
+  const [view, setView] = useState<'grid' | 'list'>(() => (localStorage.getItem('dsp_view') as 'grid' | 'list') || 'grid');
+  const [sort, setSort] = useState<'name' | 'updated'>('name');
+  const [filter, setFilter] = useState('');
+  const [newOpen, setNewOpen] = useState(false);
+  const [newFolder, setNewFolder] = useState(false);
+  const [share, setShare] = useState(false);
+  const [dropCrumb, setDropCrumb] = useState<string | null>(null);
+  const newBtn = useRef<HTMLButtonElement>(null);
+  const actions = useItemActions(() => void reload(true));
+
+  useEffect(() => {
+    const on = () => void reload(true);
+    window.addEventListener('dsp:moved', on);
+    return () => window.removeEventListener('dsp:moved', on);
+  }, [reload]);
+  useEffect(() => localStorage.setItem('dsp_view', view), [view]);
+
+  const items: Item[] = useMemo(() => {
+    if (!data) return [];
+    const s = filter.trim().toLowerCase();
+    const folders = data.subfolders.filter((f) => !s || f.name.toLowerCase().includes(s));
+    const files = data.files.filter((f) => !s || f.name.toLowerCase().includes(s));
+    const cmp = (a: { name: string; updatedAt: string; lastActivityAt?: string | null }, b: typeof a) =>
+      sort === 'name' ? a.name.localeCompare(b.name, 'th') : +new Date(b.lastActivityAt ?? b.updatedAt) - +new Date(a.lastActivityAt ?? a.updatedAt);
+    return [...folders.sort(cmp).map((d) => ({ kind: 'folder' as const, data: d })), ...files.sort(cmp).map((d) => ({ kind: 'file' as const, data: d }))];
+  }, [data, filter, sort]);
+
+  if (error)
+    return <Page><div className="ds-card"><EmptyState icon={<Lock />} title="เปิดโฟลเดอร์ไม่ได้" description={error.message} action={<Button onClick={() => nav('/browse')}>กลับไปที่ไฟล์ทั้งหมด</Button>} /></div></Page>;
+
+  const folder = data?.folder;
+  const level = data?.level ?? 0;
+  const canCreate = role !== 'user' && (id === 'root' ? true : level >= LV.write);
+  const crumbs = [{ id: 'root', name: 'ไฟล์ทั้งหมด' }, ...(data?.breadcrumb ?? [])];
+
+  return (
+    <Page>
+      <nav className="mb-3 flex flex-wrap items-center gap-1 text-sm text-muted">
+        {crumbs.map((c, i) => (
+          <span key={c.id} className="flex items-center gap-1">
+            {i > 0 && <ChevronRight className="h-3.5 w-3.5" />}
+            <Link to={c.id === 'root' ? '/browse' : `/folders/${c.id}`}
+              onDragOver={(e) => { if (c.id !== 'root' && e.dataTransfer.types.includes(DRAG_MIME)) { e.preventDefault(); setDropCrumb(c.id); } }}
+              onDragLeave={() => setDropCrumb(null)}
+              onDrop={async (e) => { e.preventDefault(); setDropCrumb(null); if (await dropInto(e, c.id)) void reload(true); }}
+              className={cn('rounded-md px-1.5 py-0.5 hover:bg-ink/5 hover:text-ink', i === crumbs.length - 1 && 'font-medium text-ink', dropCrumb === c.id && 'bg-primary/10 text-primary')}>
+              {c.name}
+            </Link>
+          </span>
+        ))}
+      </nav>
+
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {folder ? <FolderGlyph color={folder.color} size={44} /> : <span className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary"><FolderOpen className="h-5 w-5" /></span>}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-[22px] font-semibold tracking-tight">{folder?.name ?? 'ไฟล์ทั้งหมด'}</h1>
+              {folder && <StarButton active={folder.favorite} onToggle={async () => { await useData.getState().toggleFavorite('folder', folder.id); void reload(true); }} />}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 text-sm text-muted">
+              {folder ? <><PermBadge perm={levelToPerm(level)} />{folder.description && <span className="truncate">{folder.description}</span>}</> : 'โฟลเดอร์ระดับบนสุดขององค์กร'}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {folder && level >= LV.manage && <Button variant="secondary" icon={<Share2 className="h-4 w-4" />} onClick={() => setShare(true)}>แชร์</Button>}
+          {canCreate && (
+            <>
+              <Button ref={newBtn} icon={<Plus className="h-4 w-4" />} onClick={() => setNewOpen(true)}>สร้างใหม่</Button>
+              <Popover open={newOpen} onClose={() => setNewOpen(false)} anchor={newBtn.current} placement="bottom-end" width={220}>
+                <MenuList onClose={() => setNewOpen(false)} items={[
+                  { label: 'โฟลเดอร์', icon: <FolderPlus />, onClick: () => setNewFolder(true) },
+                  ...(folder ? [{ label: 'ไฟล์ (ตัวสร้างฟอร์ม)', icon: <FilePlus2 />, onClick: () => nav(`/files/new?folder=${folder.id}`) }] : []),
+                ]} />
+              </Popover>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <TextInput icon={<Search />} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="กรองในโฟลเดอร์นี้" className="w-full sm:w-72" />
+        <div className="flex items-center gap-2 text-sm text-muted"><ArrowDownAZ className="h-4 w-4" />
+          <Select value={sort} onChange={(e) => setSort(e.target.value as 'name' | 'updated')} className="w-40">
+            <option value="name">ชื่อ ก-ฮ</option><option value="updated">แก้ไขล่าสุด</option>
+          </Select>
+        </div>
+        <div className="ml-auto"><Segmented value={view} onChange={setView} options={[{ value: 'grid', label: 'การ์ด', icon: <LayoutGrid /> }, { value: 'list', label: 'รายการ', icon: <List /> }]} /></div>
+      </div>
+
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-theme" />)}</div>
+      ) : !items.length ? (
+        <div className="ds-card">
+          {folder && level === 0 ? (
+            <div className="mx-auto max-w-md py-10"><EmptyState icon={<Lock />} title="คุณยังไม่มีสิทธิ์ในโฟลเดอร์นี้" description="ส่งคำขอพร้อมเหตุผลเพื่อให้ผู้ดูแลอนุมัติ" />
+              <RequestAccessForm target={{ type: 'folder', id: folder.id, name: folder.name }} compact onDone={() => void reload(true)} /></div>
+          ) : (
+            <EmptyState icon={<FolderOpen />} title={filter ? 'ไม่พบรายการที่ตรงกับตัวกรอง' : 'โฟลเดอร์นี้ยังว่างอยู่'}
+              description={canCreate ? 'สร้างโฟลเดอร์ย่อย หรือสร้างไฟล์ด้วยตัวสร้างฟอร์มเอกสาร' : undefined}
+              action={canCreate && folder ? <Button icon={<FilePlus2 className="h-4 w-4" />} onClick={() => nav(`/files/new?folder=${folder.id}`)}>สร้างไฟล์</Button> : undefined} />
+          )}
+        </div>
+      ) : view === 'grid' ? (
+        <motion.div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" initial="h" animate="s" variants={{ s: { transition: { staggerChildren: 0.025 } } }}>
+          {items.map((it) => (
+            <motion.div key={it.kind + it.data.id} variants={{ h: { opacity: 0, y: 8 }, s: { opacity: 1, y: 0 } }}>
+              <ItemCard item={it} onMenu={actions.openMenu} onStar={actions.star} draggable={it.data.level >= LV.manage} />
+            </motion.div>
+          ))}
+        </motion.div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="row-table min-w-[720px]">
+            <thead><tr><th>ชื่อ</th><th>แก้ไขล่าสุด</th><th>แก้ไขโดย</th><th className="hidden md:table-cell">ขนาด</th><th>สิทธิ์ของคุณ</th><th /></tr></thead>
+            <tbody>{items.map((it) => <ItemRow key={it.kind + it.data.id} item={it} onMenu={actions.openMenu} onStar={actions.star} draggable={it.data.level >= LV.manage} />)}</tbody>
+          </table>
+        </div>
+      )}
+
+      {actions.ui}
+      <MetaModal open={newFolder} onClose={() => setNewFolder(false)} title={folder ? `โฟลเดอร์ใหม่ใน “${folder.name}”` : 'โฟลเดอร์ใหม่'} initial={{ name: '', color: folder?.color ?? '#1552F0' }}
+        onSubmit={async (v) => { await foldersApi.create({ ...v, parentId: folder?.id ?? null }); toast.success('สร้างโฟลเดอร์แล้ว'); void useData.getState().loadTree(); void reload(true); }} />
+      {folder && <ShareDialog open={share} onClose={() => setShare(false)} target={{ type: 'folder', id: folder.id, name: folder.name }} />}
+    </Page>
+  );
+}

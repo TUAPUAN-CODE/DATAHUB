@@ -1,0 +1,298 @@
+import { useEffect, useState } from 'react';
+import { ArrowDownToLine, ArrowUpToLine, ChevronDown, ChevronUp, Copy, Lock, Plus, Trash2, Unlock, Upload, X } from 'lucide-react';
+import { filesApi, sheetsApi, uploadsApi } from '@/api/endpoints';
+import { cn } from '@/lib/cn';
+import { isDateish } from '@/lib/columnTypes';
+import { FONTS } from '@/lib/fonts';
+import { toast } from '@/store/ui';
+import type { Agg, Column, DataSource, Sheet, Widget } from '@/types';
+import { Button } from '../ui/Button';
+import { Field, Segmented, Select, TextArea, TextInput, Toggle } from '../ui/Inputs';
+import { ColorInput } from '../ui/misc';
+import { SearchSelect } from '../ui/SearchSelect';
+import { CHART_TYPES, DATA_TYPES_W, needsX, PALETTE, WIDGETS } from './widgets';
+
+const AGGS: { v: Agg; label: string }[] = [
+  { v: 'sum', label: 'ผลรวม' }, { v: 'avg', label: 'ค่าเฉลี่ย' }, { v: 'count', label: 'นับจำนวน' }, { v: 'count_distinct', label: 'นับค่าไม่ซ้ำ' },
+  { v: 'min', label: 'ต่ำสุด' }, { v: 'max', label: 'สูงสุด' },
+];
+const colCache = new Map<string, Promise<Column[]>>();
+const loadCols = (sheetId: string) => {
+  if (!colCache.has(sheetId)) colCache.set(sheetId, sheetsApi.get(sheetId).then((d) => d.columns).catch(() => { colCache.delete(sheetId); return []; }));
+  return colCache.get(sheetId)!;
+};
+
+function DataTab({ w, fileId, fileName, fileSheets, set }: { w: Widget; fileId: string; fileName: string; fileSheets: Sheet[]; set: (p: Partial<Widget>) => void }) {
+  const ds = w.dataSource!;
+  const srcFile: string = w.config.sourceFileId ?? fileId;
+  const [sheets, setSheets] = useState<Sheet[]>(fileSheets);
+  const [cols, setCols] = useState<Column[]>([]);
+  useEffect(() => { if (srcFile === fileId) setSheets(fileSheets); else filesApi.get(srcFile).then((r) => setSheets(r.sheets)).catch(() => setSheets([])); }, [srcFile, fileId, fileSheets]);
+  useEffect(() => { if (ds.sheetId) loadCols(ds.sheetId).then(setCols); }, [ds.sheetId]);
+  const setDs = (p: Partial<DataSource>) => set({ dataSource: { ...ds, ...p } });
+  const numeric = cols.filter((c) => c.dataType === 'int' || c.dataType === 'float');
+  const xCol = cols.find((c) => c.id === ds.xColumnId);
+  const single = w.type === 'pie' || w.type === 'doughnut' || w.type === 'scatter' || w.type === 'kpi';
+
+  return (
+    <div className="space-y-4">
+      <Field label="ไฟล์ข้อมูล">
+        <SearchSelect value={srcFile} placeholder={fileName}
+          onChange={async (v) => {
+            const r = await filesApi.get(v).catch(() => null);
+            if (!r?.sheets.length) return toast.error('ไฟล์นี้ไม่มีชีตที่อ่านได้');
+            set({ config: { ...w.config, sourceFileId: v === fileId ? undefined : v }, dataSource: { ...ds, sheetId: r.sheets[0].id, xColumnId: null, groupByColumnId: null, series: [{ columnId: null, aggregation: w.type === 'scatter' ? 'none' : 'count' }], filters: [] } });
+          }}
+          load={async (q) => [{ value: fileId, label: fileName, sub: 'ไฟล์ปัจจุบัน' }, ...(await filesApi.accessible(q)).filter((f) => f.id !== fileId).map((f) => ({ value: f.id, label: f.name, sub: f.path, color: f.color }))]} />
+      </Field>
+      <Field label="ชีต">
+        <Select value={ds.sheetId} onChange={(e) => setDs({ sheetId: e.target.value, xColumnId: null, groupByColumnId: null, series: [{ columnId: null, aggregation: w.type === 'scatter' ? 'none' : 'count' }], filters: [] })}>
+          {sheets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </Select>
+      </Field>
+      {needsX(w.type) && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={w.type === 'scatter' ? 'แกน X (ตัวเลข)' : 'แกน X / หมวดหมู่'} className={xCol && isDateish(xCol.dataType) ? '' : 'col-span-2'}>
+            <Select value={ds.xColumnId ?? ''} onChange={(e) => setDs({ xColumnId: e.target.value || null })}>
+              <option value="">— เลือกคอลัมน์ —</option>
+              {(w.type === 'scatter' ? numeric : cols).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          </Field>
+          {xCol && isDateish(xCol.dataType) && (
+            <Field label="จัดกลุ่มวันที่">
+              <Select value={ds.xBucket ?? 'none'} onChange={(e) => setDs({ xBucket: e.target.value as DataSource['xBucket'] })}>
+                <option value="none">รายวัน (ตามค่า)</option><option value="week">รายสัปดาห์</option><option value="month">รายเดือน</option><option value="quarter">รายไตรมาส</option><option value="year">รายปี</option>
+              </Select>
+            </Field>
+          )}
+        </div>
+      )}
+      <div>
+        <p className="mb-1.5 text-[13px] font-medium">{w.type === 'scatter' ? 'แกน Y (ตัวเลข)' : 'ค่าที่แสดง'}</p>
+        <div className="space-y-2">
+          {ds.series.map((s, i) => (
+            <div key={i} className="space-y-1.5 rounded-xl border border-line p-2">
+              <div className="flex gap-1.5">
+                {w.type !== 'scatter' && (
+                  <Select value={s.aggregation} className="w-32 shrink-0" onChange={(e) => setDs({ series: ds.series.map((x, j) => (j === i ? { ...x, aggregation: e.target.value as Agg, columnId: e.target.value === 'count' ? x.columnId : x.columnId ?? numeric[0]?.id ?? null } : x)) })}>
+                    {AGGS.map((a) => <option key={a.v} value={a.v}>{a.label}</option>)}
+                  </Select>
+                )}
+                <Select value={s.columnId ?? ''} className="min-w-0 flex-1" onChange={(e) => setDs({ series: ds.series.map((x, j) => (j === i ? { ...x, columnId: e.target.value || null } : x)) })}>
+                  {(s.aggregation === 'count' || s.aggregation === 'count_distinct') && <option value="">ทุกแถว</option>}
+                  {(s.aggregation === 'count' || s.aggregation === 'count_distinct' ? cols : numeric).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+                {ds.series.length > 1 && <button onClick={() => setDs({ series: ds.series.filter((_, j) => j !== i) })} className="rounded-lg px-1.5 text-muted hover:text-danger" aria-label="ลบชุดข้อมูล"><X className="h-4 w-4" /></button>}
+              </div>
+              <TextInput value={s.label ?? ''} onChange={(e) => setDs({ series: ds.series.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })} placeholder="ชื่อที่แสดง (ไม่บังคับ)" className="!h-8 text-xs" />
+            </div>
+          ))}
+          {!single && !ds.groupByColumnId && ds.series.length < 8 && (
+            <Button size="sm" variant="ghost" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setDs({ series: [...ds.series, { columnId: numeric[0]?.id ?? null, aggregation: numeric.length ? 'sum' : 'count' }] })}>เพิ่มชุดข้อมูล</Button>
+          )}
+        </div>
+      </div>
+      {['bar', 'line', 'area'].includes(w.type) && ds.series.length === 1 && (
+        <Field label="แยกชุดข้อมูลตาม (ไม่บังคับ)" hint="เช่น แยกยอดผลิตตามกะ">
+          <Select value={ds.groupByColumnId ?? ''} onChange={(e) => setDs({ groupByColumnId: e.target.value || null })}>
+            <option value="">— ไม่แยก —</option>
+            {cols.filter((c) => ['select', 'varchar', 'boolean', 'multi_select'].includes(c.dataType) && c.id !== ds.xColumnId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+        </Field>
+      )}
+      {needsX(w.type) && w.type !== 'scatter' && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="เรียงลำดับ">
+            <Select value={ds.sort ?? 'x_asc'} onChange={(e) => setDs({ sort: e.target.value as DataSource['sort'] })}>
+              <option value="x_asc">หมวด ก → ฮ</option><option value="x_desc">หมวด ฮ → ก</option><option value="value_desc">ค่ามาก → น้อย</option><option value="value_asc">ค่าน้อย → มาก</option>
+            </Select>
+          </Field>
+          <Field label="จำนวนหมวดสูงสุด"><TextInput inputMode="numeric" value={ds.limit ?? 50} onChange={(e) => setDs({ limit: Math.max(1, Math.min(500, Number(e.target.value) || 1)) })} /></Field>
+        </div>
+      )}
+      <div>
+        <p className="mb-1.5 text-[13px] font-medium">กรองข้อมูล</p>
+        {(ds.filters ?? []).map((f, i) => (
+          <div key={i} className="mb-1.5 flex gap-1.5">
+            <Select value={f.columnId} className="min-w-0 flex-1" onChange={(e) => setDs({ filters: ds.filters!.map((x, j) => (j === i ? { ...x, columnId: e.target.value } : x)) })}>
+              {cols.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+            <Select value={f.op ?? 'eq'} className="w-24 shrink-0" onChange={(e) => setDs({ filters: ds.filters!.map((x, j) => (j === i ? { ...x, op: e.target.value as any } : x)) })}>
+              {[['eq', '='], ['neq', '≠'], ['gt', '>'], ['gte', '≥'], ['lt', '<'], ['lte', '≤'], ['contains', 'มีคำ'], ['not_empty', 'ไม่ว่าง'], ['is_empty', 'ว่าง']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
+            {!['is_empty', 'not_empty'].includes(f.op ?? '') && <TextInput value={f.value ?? ''} className="!w-24" type={isDateish(cols.find((c) => c.id === f.columnId)?.dataType ?? 'varchar') ? 'date' : 'text'}
+              onChange={(e) => setDs({ filters: ds.filters!.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} />}
+            <button onClick={() => setDs({ filters: ds.filters!.filter((_, j) => j !== i) })} className="px-1 text-muted hover:text-danger" aria-label="ลบตัวกรอง"><X className="h-4 w-4" /></button>
+          </div>
+        ))}
+        {cols.length > 0 && <Button size="sm" variant="ghost" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setDs({ filters: [...(ds.filters ?? []), { columnId: cols[0].id, op: 'eq', value: '' }] })}>เพิ่มตัวกรอง</Button>}
+      </div>
+    </div>
+  );
+}
+
+function Num({ label, value, onChange, min, max, step = 1 }: { label: string; value: number | undefined; onChange: (v: number | undefined) => void; min?: number; max?: number; step?: number }) {
+  return (
+    <Field label={label}>
+      <TextInput inputMode="decimal" value={value ?? ''} step={step} onChange={(e) => { const v = e.target.value === '' ? undefined : Number(e.target.value); onChange(v === undefined || Number.isNaN(v) ? undefined : Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v))); }} className="!h-9" />
+    </Field>
+  );
+}
+
+function StyleTab({ w, set }: { w: Widget; set: (p: Partial<Widget>) => void }) {
+  const c = w.config;
+  const s = w.style;
+  const setC = (p: Record<string, unknown>) => set({ config: { ...c, ...p } });
+  const setS = (p: Record<string, unknown>) => set({ style: { ...s, ...p } });
+  const [uploading, setUploading] = useState(false);
+  const upload = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
+    try { const r = await uploadsApi.image(file); setC({ url: r.url }); } catch (e) { toast.error(e, 'อัปโหลดไม่สำเร็จ'); } finally { setUploading(false); }
+  };
+  const chart = CHART_TYPES.includes(w.type);
+  const seriesCount = Math.max(1, (w.dataSource?.series.length ?? 1), w.type === 'pie' || w.type === 'doughnut' || w.dataSource?.groupByColumnId ? 8 : 1);
+  return (
+    <div className="space-y-4">
+      {!['text', 'shape', 'image'].includes(w.type) && (
+        <>
+          <Field label="หัวข้อ"><TextInput value={w.title} onChange={(e) => set({ title: e.target.value })} /></Field>
+          <div className="flex items-center justify-between"><Toggle checked={s.showTitle !== false} onChange={(v) => setS({ showTitle: v })} label="แสดงหัวข้อ" />
+            <div className="w-24"><Num label="" value={s.titleSize ?? 15} onChange={(v) => setS({ titleSize: v })} min={10} max={40} /></div></div>
+        </>
+      )}
+      {chart && (
+        <>
+          <Field label="สีของชุดข้อมูล">
+            <div className="space-y-1.5">{Array.from({ length: Math.min(seriesCount, 8) }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2"><span className="w-5 text-xs text-muted">{i + 1}</span>
+                <ColorInput value={(c.colors ?? PALETTE)[i]} swatches={PALETTE.slice(0, 7)} onChange={(v) => { const arr = [...(c.colors ?? PALETTE)]; arr[i] = v ?? PALETTE[i]; setC({ colors: arr }); }} /></div>
+            ))}</div>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Toggle checked={c.legend !== false} onChange={(v) => setC({ legend: v })} label="คำอธิบาย" />
+            {w.type !== 'pie' && w.type !== 'doughnut' && <Toggle checked={c.grid !== false} onChange={(v) => setC({ grid: v })} label="เส้นตาราง" />}
+            <Toggle checked={!!c.labels} onChange={(v) => setC({ labels: v })} label="ป้ายค่า" />
+            {(w.type === 'bar' || w.type === 'area') && <Toggle checked={!!c.stacked} onChange={(v) => setC({ stacked: v })} label="ซ้อนกัน" />}
+            {w.type === 'bar' && <Toggle checked={!!c.horizontal} onChange={(v) => setC({ horizontal: v })} label="แนวนอน" />}
+          </div>
+          {(w.type === 'line' || w.type === 'area') && (
+            <Field label="รูปแบบเส้น"><Segmented value={c.curve ?? 'monotone'} onChange={(v) => setC({ curve: v })} size="sm" options={[{ value: 'monotone', label: 'โค้ง' }, { value: 'linear', label: 'ตรง' }, { value: 'step', label: 'ขั้นบันได' }]} /></Field>
+          )}
+          {['bar', 'line', 'area'].includes(w.type) && !c.horizontal && <Num label="เอียงป้ายแกน X (องศา)" value={c.xAngle ?? 0} onChange={(v) => setC({ xAngle: v ?? 0 })} min={-90} max={0} />}
+        </>
+      )}
+      {w.type === 'kpi' && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="คำนำหน้า"><TextInput value={c.prefix ?? ''} onChange={(e) => setC({ prefix: e.target.value })} className="!h-9" placeholder="฿" /></Field>
+          <Field label="คำต่อท้าย"><TextInput value={c.suffix ?? ''} onChange={(e) => setC({ suffix: e.target.value })} className="!h-9" placeholder=" ชิ้น" /></Field>
+          <Num label="ทศนิยม" value={c.decimals ?? 0} onChange={(v) => setC({ decimals: v })} min={0} max={6} />
+          <Num label="เป้าหมาย" value={c.target} onChange={(v) => setC({ target: v })} />
+          <Field label="สีตัวเลข" className="col-span-2"><ColorInput value={c.color} onChange={(v) => setC({ color: v ?? '' })} allowEmpty /></Field>
+        </div>
+      )}
+      {w.type === 'table' && <Num label="ทศนิยม" value={c.decimals ?? 2} onChange={(v) => setC({ decimals: v })} min={0} max={6} />}
+      {w.type === 'text' && (
+        <>
+          <Field label="ข้อความ"><TextArea rows={4} value={c.text ?? ''} onChange={(e) => setC({ text: e.target.value })} /></Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Num label="ขนาด" value={c.fontSize ?? 18} onChange={(v) => setC({ fontSize: v })} min={8} max={160} />
+            <Field label="น้ำหนัก"><Select value={c.fontWeight ?? 400} onChange={(e) => setC({ fontWeight: Number(e.target.value) })}>{[300, 400, 500, 600, 700].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Field>
+          </div>
+          <Field label="ฟอนต์"><Select value={c.fontFamily ?? ''} onChange={(e) => setC({ fontFamily: e.target.value || undefined })}><option value="">ตามธีม</option>{FONTS.map((f) => <option key={f.family} value={f.family}>{f.family}</option>)}</Select></Field>
+          <Field label="จัดแนว"><Segmented value={c.align ?? 'left'} onChange={(v) => setC({ align: v })} size="sm" options={[{ value: 'left', label: 'ซ้าย' }, { value: 'center', label: 'กลาง' }, { value: 'right', label: 'ขวา' }]} /></Field>
+          <Field label="แนวตั้ง"><Segmented value={c.valign ?? 'top'} onChange={(v) => setC({ valign: v })} size="sm" options={[{ value: 'top', label: 'บน' }, { value: 'middle', label: 'กลาง' }, { value: 'bottom', label: 'ล่าง' }]} /></Field>
+          <Toggle checked={!!c.italic} onChange={(v) => setC({ italic: v })} label="ตัวเอียง" />
+          <Field label="สีข้อความ"><ColorInput value={c.color} onChange={(v) => setC({ color: v ?? '' })} allowEmpty /></Field>
+        </>
+      )}
+      {w.type === 'image' && (
+        <>
+          <label className={cn('flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line py-4 text-sm text-muted hover:border-primary/50 hover:text-primary', uploading && 'opacity-50')}>
+            <Upload className="h-4 w-4" />{uploading ? 'กำลังอัปโหลด…' : 'อัปโหลดรูปภาพ (สูงสุด 5MB)'}
+            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={(e) => void upload(e.target.files?.[0])} />
+          </label>
+          <Field label="หรือใส่ URL รูปภาพ"><TextInput value={c.url ?? ''} onChange={(e) => setC({ url: e.target.value })} placeholder="https://…" /></Field>
+          <Field label="การแสดงผล"><Segmented value={c.fit ?? 'cover'} onChange={(v) => setC({ fit: v })} size="sm" options={[{ value: 'cover', label: 'เต็มกรอบ' }, { value: 'contain', label: 'พอดีรูป' }, { value: 'fill', label: 'ยืด' }]} /></Field>
+        </>
+      )}
+      {w.type === 'shape' && (
+        <>
+          <Field label="รูปทรง"><Segmented value={c.shape ?? 'rect'} onChange={(v) => setC({ shape: v })} size="sm" options={[{ value: 'rect', label: 'สี่เหลี่ยม' }, { value: 'ellipse', label: 'วงรี' }, { value: 'line', label: 'เส้น' }]} /></Field>
+          <Field label="สีพื้น"><ColorInput value={c.fill} onChange={(v) => setC({ fill: v ?? 'transparent' })} allowEmpty /></Field>
+          {c.shape !== 'line' && <Field label="สีขอบ"><ColorInput value={c.stroke} onChange={(v) => setC({ stroke: v ?? 'transparent' })} allowEmpty /></Field>}
+          <Num label={c.shape === 'line' ? 'ความหนาเส้น' : 'ความหนาขอบ'} value={c.strokeWidth ?? 0} onChange={(v) => setC({ strokeWidth: v })} min={0} max={40} />
+          {c.shape === 'rect' && <Num label="ความโค้งมุม" value={s.radius ?? 16} onChange={(v) => setS({ radius: v })} min={0} max={400} />}
+        </>
+      )}
+      {w.type !== 'shape' && (
+        <div className="space-y-3 border-t border-line pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted">กรอบ</p>
+          <Field label="สีพื้นหลัง"><ColorInput value={s.bg === 'transparent' ? null : s.bg} onChange={(v) => setS({ bg: v ?? 'transparent' })} allowEmpty /></Field>
+          <Field label="สีตัวอักษร"><ColorInput value={s.text} onChange={(v) => setS({ text: v ?? undefined })} allowEmpty /></Field>
+          <Field label="สีขอบ"><ColorInput value={s.border} onChange={(v) => setS({ border: v ?? undefined })} allowEmpty /></Field>
+          <div className="grid grid-cols-3 gap-2">
+            <Num label="ขอบ" value={s.borderWidth} onChange={(v) => setS({ borderWidth: v })} min={0} max={20} />
+            <Num label="มุมโค้ง" value={s.radius} onChange={(v) => setS({ radius: v })} min={0} max={200} />
+            <Num label="ระยะใน" value={s.padding} onChange={(v) => setS({ padding: v })} min={0} max={80} />
+          </div>
+          <Field label="เงา"><Segmented value={s.shadow ?? 'sm'} onChange={(v) => setS({ shadow: v })} size="sm" options={[{ value: 'none', label: 'ไม่มี' }, { value: 'sm', label: 'เบา' }, { value: 'md', label: 'กลาง' }, { value: 'lg', label: 'มาก' }]} /></Field>
+        </div>
+      )}
+      <Field label={`ความโปร่งใส ${Math.round((s.opacity ?? 1) * 100)}%`}>
+        <input type="range" min={0.1} max={1} step={0.05} value={s.opacity ?? 1} onChange={(e) => setS({ opacity: Number(e.target.value) })} className="w-full accent-[rgb(var(--c-primary))]" />
+      </Field>
+    </div>
+  );
+}
+
+export function WidgetConfigPanel({ w, fileId, fileName, sheets, onChange, onRemove, onDuplicate, onLayer }: {
+  w: Widget; fileId: string; fileName: string; sheets: Sheet[]; onChange: (p: Partial<Widget>) => void; onRemove: () => void; onDuplicate: () => void;
+  onLayer: (op: 'front' | 'back' | 'up' | 'down') => void;
+}) {
+  const hasData = DATA_TYPES_W.includes(w.type);
+  const [tab, setTab] = useState<'data' | 'style' | 'layout'>(hasData ? 'data' : 'style');
+  useEffect(() => { setTab(hasData ? 'data' : 'style'); }, [w.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const meta = WIDGETS.find((x) => x.type === w.type)!;
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+        <span className="text-primary [&>svg]:h-4 [&>svg]:w-4">{meta.icon}</span>
+        <span className="flex-1 truncate text-sm font-semibold">{w.title || meta.label}</span>
+        <button onClick={() => onChange({ locked: !w.locked })} className={cn('rounded-lg p-1.5 hover:bg-ink/5', w.locked ? 'text-warning' : 'text-muted')} title={w.locked ? 'ปลดล็อก' : 'ล็อกตำแหน่ง'}>
+          {w.locked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+        </button>
+      </div>
+      <div className="px-4 pt-3">
+        <Segmented value={tab} onChange={setTab} size="sm" options={[...(hasData ? [{ value: 'data' as const, label: 'ข้อมูล' }] : []), { value: 'style', label: 'รูปแบบ' }, { value: 'layout', label: 'จัดวาง' }]} />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {tab === 'data' && hasData && w.dataSource && <DataTab w={w} fileId={fileId} fileName={fileName} fileSheets={sheets} set={onChange} />}
+        {tab === 'style' && <StyleTab w={w} set={onChange} />}
+        {tab === 'layout' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              <Num label="X" value={Math.round(w.x)} onChange={(v) => onChange({ x: v ?? 0 })} />
+              <Num label="Y" value={Math.round(w.y)} onChange={(v) => onChange({ y: v ?? 0 })} />
+              <Num label="กว้าง" value={Math.round(w.w)} onChange={(v) => onChange({ w: Math.max(20, v ?? 20) })} />
+              <Num label="สูง" value={Math.round(w.h)} onChange={(v) => onChange({ h: Math.max(20, v ?? 20) })} />
+            </div>
+            <Field label="ลำดับชั้น">
+              <div className="grid grid-cols-2 gap-1.5">
+                <Button size="sm" variant="secondary" icon={<ArrowUpToLine className="h-3.5 w-3.5" />} onClick={() => onLayer('front')}>หน้าสุด</Button>
+                <Button size="sm" variant="secondary" icon={<ArrowDownToLine className="h-3.5 w-3.5" />} onClick={() => onLayer('back')}>หลังสุด</Button>
+                <Button size="sm" variant="secondary" icon={<ChevronUp className="h-3.5 w-3.5" />} onClick={() => onLayer('up')}>ขึ้น 1 ชั้น</Button>
+                <Button size="sm" variant="secondary" icon={<ChevronDown className="h-3.5 w-3.5" />} onClick={() => onLayer('down')}>ลง 1 ชั้น</Button>
+              </div>
+            </Field>
+            <p className="text-xs text-muted">ลูกศรเลื่อน 1px · Shift+ลูกศร 10px · Ctrl+D ทำซ้ำ · Delete ลบ</p>
+          </div>
+        )}
+      </div>
+      <div className="flex gap-2 border-t border-line p-3">
+        <Button size="sm" variant="secondary" className="flex-1" icon={<Copy className="h-3.5 w-3.5" />} onClick={onDuplicate}>ทำซ้ำ</Button>
+        <Button size="sm" variant="ghost" className="flex-1 text-danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={onRemove}>ลบ</Button>
+      </div>
+    </div>
+  );
+}

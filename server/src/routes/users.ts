@@ -1,0 +1,228 @@
+import bcrypt from 'bcryptjs';
+import { Router } from 'express';
+import { z } from 'zod';
+import { jsonParam, q, q1, T, withTx, Tx, idList } from '../config/db';
+import { invalidateUserCache, requireRole, Role, ROLE_ID, ROLE_SQL, ROLES } from '../middleware/auth';
+import { audit } from '../shared/audit';
+import { ah, badRequest, conflict, likeEscape, notFound, ok, pageParams, parse, pid, zId } from '../shared/http';
+import { mapUser } from '../shared/mappers';
+
+const router = Router();
+const adminOnly = requireRole('admin');
+const zRole = z.enum(ROLES as [Role, ...Role[]]);
+
+async function setRole(tx: Tx, userId: string, role: Role, by: string) {
+  await q(`DELETE FROM UserRoles WHERE user_id = @u`, { u: T.uuid(userId) }, tx);
+  await q(`INSERT INTO UserRoles (user_id, role_id, assigned_by) VALUES (@u, @r, @b)`,
+    { u: T.uuid(userId), r: ROLE_ID[role], b: T.uuid(by) }, tx);
+}
+
+async function activeAdminCount(excludeIds: string[] = []) {
+  const r = await q1(
+    `SELECT COUNT(*) AS n FROM Users u JOIN UserRoles ur ON ur.user_id = u.user_id AND ur.role_id = 3
+     WHERE u.is_active = 1 AND u.user_id NOT IN ${idList('@ex')}`,
+    { ex: jsonParam(excludeIds) },
+  );
+  return Number(r?.n ?? 0);
+}
+
+async function getUser(id: string) {
+  return q1(`SELECT u.*, ${ROLE_SQL} AS role FROM Users u WHERE u.user_id = @id`, { id: T.uuid(id) });
+}
+
+/** Lightweight lookup for share dialogs — available to every signed-in user */
+router.get(
+  '/users/lookup',
+  ah(async (req, res) => {
+    const s = String(req.query.q ?? '').trim();
+    const rows = await q(
+      `SELECT TOP 20 u.user_id, u.username, u.display_name, u.email, u.avatar_url, ${ROLE_SQL} AS role
+       FROM Users u WHERE u.is_active = 1
+       ${s ? `AND (u.display_name LIKE @s OR u.username LIKE @s OR u.email LIKE @s)` : ''}
+       ORDER BY u.display_name`,
+      { s: `%${likeEscape(s)}%` },
+    );
+    ok(res, rows.map(mapUser));
+  }),
+);
+
+router.put(
+  '/users/me/profile',
+  ah(async (req, res) => {
+    const body = parse(
+      z.object({
+        displayName: z.string().trim().min(1).max(200),
+        email: z.string().trim().email('อีเมลไม่ถูกต้อง').max(255),
+        avatarUrl: z.string().max(1000).nullish(),
+      }),
+      req.body,
+    );
+    const dup = await q1(`SELECT user_id FROM Users WHERE email = @e AND user_id <> @id`, { e: body.email, id: T.uuid(req.user!.id) });
+    if (dup) throw conflict('อีเมลนี้ถูกใช้งานแล้ว');
+    await q(
+      `UPDATE Users SET display_name = @n, email = @e, avatar_url = @a, updated_at = SYSUTCDATETIME() WHERE user_id = @id`,
+      { n: body.displayName, e: body.email, a: T.text(body.avatarUrl ?? null), id: T.uuid(req.user!.id) },
+    );
+    invalidateUserCache(req.user!.id);
+    ok(res, mapUser(await getUser(req.user!.id)));
+  }),
+);
+
+router.get(
+  '/users',
+  adminOnly,
+  ah(async (req, res) => {
+    const { page, pageSize, offset } = pageParams(req.query, 20, 200);
+    const s = String(req.query.search ?? '').trim();
+    const role = String(req.query.role ?? '');
+    const status = String(req.query.status ?? '');
+    const where: string[] = ['1 = 1'];
+    const p: Record<string, unknown> = {};
+    if (s) {
+      where.push('(u.display_name LIKE @s OR u.username LIKE @s OR u.email LIKE @s)');
+      p.s = `%${likeEscape(s)}%`;
+    }
+    if (status === 'active') where.push('u.is_active = 1');
+    if (status === 'inactive') where.push('u.is_active = 0');
+    const roleFilter = ROLES.includes(role as Role) ? `WHERE x.role = @role` : '';
+    if (roleFilter) p.role = role;
+    const base = `SELECT u.user_id, u.username, u.email, u.display_name, u.avatar_url, u.is_active, u.last_login_at,
+                  u.created_at, ${ROLE_SQL} AS role FROM Users u WHERE ${where.join(' AND ')}`;
+    const count = await q1(`SELECT COUNT(*) AS n FROM (${base}) x ${roleFilter}`, p);
+    const rows = await q(
+      `SELECT * FROM (${base}) x ${roleFilter} ORDER BY x.created_at DESC
+       OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY`,
+      p,
+    );
+    const stats = await q1(
+      `SELECT COUNT(*) AS total, SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active FROM Users`,
+    );
+    ok(res, {
+      items: rows.map(mapUser),
+      total: Number(count?.n ?? 0),
+      page,
+      pageSize,
+      stats: { total: Number(stats?.total ?? 0), active: Number(stats?.active ?? 0) },
+    });
+  }),
+);
+
+const createSchema = z.object({
+  username: z.string().trim().min(3, 'ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร').max(100).regex(/^[a-zA-Z0-9._-]+$/, 'ใช้ได้เฉพาะ a-z 0-9 . _ -'),
+  email: z.string().trim().email('อีเมลไม่ถูกต้อง').max(255),
+  displayName: z.string().trim().min(1).max(200),
+  password: z.string().min(8, 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร').max(200),
+  role: zRole.default('user'),
+});
+
+router.post(
+  '/users',
+  adminOnly,
+  ah(async (req, res) => {
+    const body = parse(createSchema, req.body);
+    const dup = await q1(`SELECT username, email FROM Users WHERE username = @u OR email = @e`, { u: body.username, e: body.email });
+    if (dup) throw conflict(dup.username?.toLowerCase() === body.username.toLowerCase() ? 'ชื่อผู้ใช้นี้ถูกใช้แล้ว' : 'อีเมลนี้ถูกใช้แล้ว');
+    const hash = await bcrypt.hash(body.password, 12);
+    const id = await withTx(async (tx) => {
+      const row = await q1(
+        `INSERT INTO Users (username, email, password_hash, display_name, created_by) OUTPUT inserted.user_id
+         VALUES (@u, @e, @h, @n, @by)`,
+        { u: body.username, e: body.email, h: hash, n: body.displayName, by: T.uuid(req.user!.id) },
+        tx,
+      );
+      await setRole(tx, row!.user_id, body.role, req.user!.id);
+      await audit({ userId: req.user!.id, action: 'user_create', entityType: 'user', entityId: row!.user_id,
+        newValue: { username: body.username, role: body.role } }, req, tx);
+      return row!.user_id as string;
+    });
+    ok(res, mapUser(await getUser(id)), 201);
+  }),
+);
+
+router.put(
+  '/users/:id',
+  adminOnly,
+  ah(async (req, res) => {
+    const id = pid(req);
+    const body = parse(
+      z.object({
+        email: z.string().trim().email().max(255).optional(),
+        displayName: z.string().trim().min(1).max(200).optional(),
+        role: zRole.optional(),
+        isActive: z.boolean().optional(),
+      }),
+      req.body,
+    );
+    const before = await getUser(id);
+    if (!before) throw notFound('ไม่พบผู้ใช้');
+    const self = id === req.user!.id;
+    if (self && body.isActive === false) throw badRequest('ไม่สามารถปิดการใช้งานบัญชีของตัวเองได้');
+    if (self && body.role && body.role !== 'admin') throw badRequest('ไม่สามารถลดสิทธิ์ของตัวเองได้');
+    const losingAdmin = before.role === 'admin' && ((body.role && body.role !== 'admin') || body.isActive === false);
+    if (losingAdmin && (await activeAdminCount([id])) === 0) throw badRequest('ระบบต้องมี Admin ที่ใช้งานได้อย่างน้อย 1 คน');
+    if (body.email) {
+      const dup = await q1(`SELECT 1 AS x FROM Users WHERE email = @e AND user_id <> @id`, { e: body.email, id: T.uuid(id) });
+      if (dup) throw conflict('อีเมลนี้ถูกใช้แล้ว');
+    }
+    await withTx(async (tx) => {
+      await q(
+        `UPDATE Users SET email = COALESCE(@e, email), display_name = COALESCE(@n, display_name),
+           is_active = COALESCE(@a, is_active), updated_at = SYSUTCDATETIME() WHERE user_id = @id`,
+        { e: T.text(body.email ?? null), n: T.text(body.displayName ?? null), a: T.bit(body.isActive ?? null), id: T.uuid(id) },
+        tx,
+      );
+      if (body.role && body.role !== before.role) await setRole(tx, id, body.role, req.user!.id);
+      if (body.isActive === false) await q(`UPDATE RefreshTokens SET revoked_at = SYSUTCDATETIME() WHERE user_id = @id AND revoked_at IS NULL`, { id: T.uuid(id) }, tx);
+      await audit({ userId: req.user!.id, action: 'user_update', entityType: 'user', entityId: id,
+        oldValue: { role: before.role, isActive: !!before.is_active, email: before.email, displayName: before.display_name },
+        newValue: body }, req, tx);
+    });
+    invalidateUserCache(id);
+    ok(res, mapUser(await getUser(id)));
+  }),
+);
+
+router.post(
+  '/users/:id/reset-password',
+  adminOnly,
+  ah(async (req, res) => {
+    const id = pid(req);
+    const { password } = parse(z.object({ password: z.string().min(8, 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร').max(200) }), req.body);
+    const u = await getUser(id);
+    if (!u) throw notFound('ไม่พบผู้ใช้');
+    await q(`UPDATE Users SET password_hash = @h, updated_at = SYSUTCDATETIME() WHERE user_id = @id`, { h: await bcrypt.hash(password, 12), id: T.uuid(id) });
+    await q(`UPDATE RefreshTokens SET revoked_at = SYSUTCDATETIME() WHERE user_id = @id AND revoked_at IS NULL`, { id: T.uuid(id) });
+    await audit({ userId: req.user!.id, action: 'password_reset', entityType: 'user', entityId: id }, req);
+    ok(res, { reset: true });
+  }),
+);
+
+router.post(
+  '/users/bulk',
+  adminOnly,
+  ah(async (req, res) => {
+    const body = parse(
+      z.object({ ids: z.array(zId).min(1).max(500), action: z.enum(['activate', 'deactivate', 'set_role']), role: zRole.optional() }),
+      req.body,
+    );
+    const ids = body.ids.filter((i) => i !== req.user!.id);
+    if (!ids.length) throw badRequest('ไม่สามารถเปลี่ยนแปลงบัญชีของตัวเองแบบกลุ่มได้');
+    if (body.action === 'set_role' && !body.role) throw badRequest('กรุณาเลือกบทบาท');
+    if ((body.action === 'deactivate' || (body.action === 'set_role' && body.role !== 'admin')) && (await activeAdminCount(ids)) === 0)
+      throw badRequest('ระบบต้องมี Admin ที่ใช้งานได้อย่างน้อย 1 คน');
+    await withTx(async (tx) => {
+      if (body.action === 'set_role') for (const id of ids) await setRole(tx, id, body.role!, req.user!.id);
+      else {
+        await q(`UPDATE Users SET is_active = @a, updated_at = SYSUTCDATETIME() WHERE user_id IN ${idList('@ids')}`,
+          { a: body.action === 'activate', ids: jsonParam(ids) }, tx);
+        if (body.action === 'deactivate')
+          await q(`UPDATE RefreshTokens SET revoked_at = SYSUTCDATETIME() WHERE revoked_at IS NULL AND user_id IN ${idList('@ids')}`, { ids: jsonParam(ids) }, tx);
+      }
+      await audit({ userId: req.user!.id, action: 'user_bulk_update', entityType: 'user', entityId: 'bulk', newValue: { ...body, ids } }, req, tx);
+    });
+    ids.forEach((i) => invalidateUserCache(i));
+    ok(res, { updated: ids.length });
+  }),
+);
+
+export default router;
