@@ -39,16 +39,18 @@ body {
   /* Sidebar with the signature connected "pill" for the active item */
   .ds-sidebar { background: var(--sidebar-bg); color: var(--sidebar-text); width: var(--sidebar-w); }
   .nav-link { position: relative; display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 18px;
-    margin-left: 14px; border-radius: 999px 0 0 999px; color: var(--sidebar-text); opacity: .82;
-    transition: background-color .25s ease, color .25s ease, opacity .25s ease; font-weight: 500; white-space: nowrap; }
-  .nav-link:hover { background: rgb(255 255 255 / .1); opacity: 1; }
-  .nav-link.active { background: rgb(var(--c-bg)); color: rgb(var(--c-primary)); opacity: 1; }
-  /* The inverted corners are always mounted and fade with the pill, so they never pop in before the background */
-  .nav-link::before, .nav-link::after { content: ''; position: absolute; right: 0; width: 24px; height: 24px;
-    background: transparent; pointer-events: none; opacity: 0; transition: opacity .25s ease; }
-  .nav-link::before { top: -24px; border-bottom-right-radius: 24px; box-shadow: 8px 8px 0 8px rgb(var(--c-bg)); }
-  .nav-link::after { bottom: -24px; border-top-right-radius: 24px; box-shadow: 8px -8px 0 8px rgb(var(--c-bg)); }
-  .nav-link.active::before, .nav-link.active::after { opacity: 1; }
+    margin-left: 14px; border-radius: 999px 0 0 999px; color: var(--sidebar-text);
+    transition: background-color .2s ease, color .25s ease; font-weight: 500; white-space: nowrap; }
+  /* Dim via the children, not the link: an opacity on the link would create a stacking context and hide the sliding pill */
+  .nav-link > :not(.nav-pill) { position: relative; z-index: 1; opacity: .82; transition: opacity .25s ease; }
+  .nav-link:hover { background: rgb(255 255 255 / .1); }
+  .nav-link:hover > :not(.nav-pill), .nav-link.active > :not(.nav-pill) { opacity: 1; }
+  .nav-link.active { color: rgb(var(--c-primary)); background: transparent; }
+  /* One shared pill (framer-motion layoutId) slides from the old item to the new one; its inverted corners travel with it */
+  .nav-pill { position: absolute; inset: 0; z-index: 0; background: rgb(var(--c-bg)); border-radius: 999px 0 0 999px; pointer-events: none; }
+  .nav-pill::before, .nav-pill::after { content: ''; position: absolute; right: 0; width: 24px; height: 24px; background: transparent; }
+  .nav-pill::before { top: -24px; border-bottom-right-radius: 24px; box-shadow: 8px 8px 0 8px rgb(var(--c-bg)); }
+  .nav-pill::after { bottom: -24px; border-top-right-radius: 24px; box-shadow: 8px -8px 0 8px rgb(var(--c-bg)); }
   .side-item { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 10px;
     color: var(--sidebar-text); opacity: .8; font-size: 13px; transition: background-color .15s, opacity .15s; }
   .side-item:hover, .side-item.active { background: rgb(255 255 255 / .12); opacity: 1; }

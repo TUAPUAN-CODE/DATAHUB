@@ -59,7 +59,6 @@ export default function DashboardPage() {
     const pad = full ? 0 : 48;
     const w = viewport.current.clientWidth - pad;
     let z = w / meta.canvas.width;
-    if (full) z = Math.min(z, (viewport.current.clientHeight - pad) / meta.canvas.height);
     setZoom(Math.max(0.2, Math.min(full ? 4 : 1.5, Math.round(z * 1000) / 1000)));
   }, [meta, full]);
   useLayoutEffect(() => {
@@ -227,8 +226,8 @@ export default function DashboardPage() {
           </motion.aside>
         )}
 
-        <div ref={viewport} className={cn('relative min-w-0 flex-1 overflow-auto', full ? 'flex bg-black' : 'rounded-theme border border-line bg-ink/[.035]')} onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
-          <div className={cn(full ? 'm-auto' : 'p-6')} style={{ width: meta.canvas.width * zoom + pad, height: meta.canvas.height * zoom + pad }}>
+        <div ref={viewport} className={cn('relative min-w-0 flex-1 overflow-auto', full ? 'bg-black' : 'rounded-theme border border-line bg-ink/[.035]')} style={full ? { scrollbarGutter: 'stable' } : undefined} onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
+          <div className={cn(full ? 'mx-auto' : 'p-6')} style={{ width: meta.canvas.width * zoom + pad, height: meta.canvas.height * zoom + pad }}>
             <div style={{ width: meta.canvas.width * zoom, height: meta.canvas.height * zoom }} className="relative">
               <div onDragOver={(e) => { if (e.dataTransfer.types.includes(WMIME)) e.preventDefault(); }} onDrop={onDrop}
                 onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}

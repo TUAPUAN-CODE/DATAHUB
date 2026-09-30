@@ -47,8 +47,9 @@ function useSlicerItems(ds: DataSource | null, col: Column | undefined, enabled:
   return { items, loading };
 }
 
-function DropdownSlicer({ items, selected, multi, search, placeholder, onChange }: {
-  items: Item[]; selected: any[]; multi: boolean; search: boolean; placeholder: string; onChange: (v: any[]) => void;
+type Look = { fontSize?: number; color?: string; controlBg?: string; controlBorder?: string; radius?: number };
+function DropdownSlicer({ items, selected, multi, search, placeholder, onChange, look }: {
+  items: Item[]; selected: any[]; multi: boolean; search: boolean; placeholder: string; onChange: (v: any[]) => void; look: Look;
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -63,17 +64,18 @@ function DropdownSlicer({ items, selected, multi, search, placeholder, onChange 
   return (
     <>
       <button ref={btn} type="button" onClick={() => setOpen((o) => !o)} onMouseDown={(e) => e.stopPropagation()}
-        className={cn('flex h-10 w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 text-left text-sm', selected.length ? 'text-ink' : 'text-muted')}>
+        style={{ background: look.controlBg || undefined, borderColor: look.controlBorder || undefined, borderRadius: look.radius, color: selected.length ? look.color || undefined : undefined }}
+        className={cn('flex h-10 w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 text-left', selected.length ? 'text-ink' : 'text-muted')}>
         <span className="min-w-0 flex-1 truncate">{text}</span>
         {selected.length > 0 && <span role="button" tabIndex={0} aria-label="ล้างตัวกรอง" onClick={(e) => { e.stopPropagation(); onChange([]); }} className="rounded p-0.5 hover:bg-ink/10"><X className="h-3.5 w-3.5" /></span>}
         <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
       </button>
       <Popover open={open} onClose={() => { setOpen(false); setQ(''); }} anchor={btn.current} width={Math.max(240, btn.current?.offsetWidth ?? 240)}>
         {search && (
-          <div className="border-b border-line p-2">
+          <div className="border-b border-line p-2" style={{ fontSize: look.fontSize }}>
             <div className="flex items-center gap-2 rounded-lg bg-ink/5 px-2.5">
               <Search className="h-4 w-4 text-muted" />
-              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหา…" className="h-9 w-full bg-transparent text-sm outline-none" />
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหา…" className="h-9 w-full bg-transparent outline-none" />
               {q && <button onClick={() => setQ('')} aria-label="ล้างคำค้น"><X className="h-3.5 w-3.5 text-muted" /></button>}
             </div>
           </div>
@@ -84,10 +86,10 @@ function DropdownSlicer({ items, selected, multi, search, placeholder, onChange 
             <button className="text-muted hover:text-ink" onClick={() => onChange([])}>ล้าง</button>
           </div>
         )}
-        <div className="max-h-64 overflow-y-auto p-1">
+        <div className="max-h-64 overflow-y-auto p-1" style={{ fontSize: look.fontSize }}>
           {list.length === 0 && <p className="px-3 py-4 text-center text-xs text-muted">ไม่พบรายการ</p>}
           {list.map((i) => (
-            <button key={String(i.value)} onClick={() => toggle(i.value)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-ink/5">
+            <button key={String(i.value)} onClick={() => toggle(i.value)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-ink/5">
               <span className={cn('grid h-4 w-4 shrink-0 place-items-center border', multi ? 'rounded' : 'rounded-full', isSel(i.value) ? 'border-primary bg-primary text-white' : 'border-line')}>
                 {isSel(i.value) && <Check className="h-3 w-3" />}
               </span>
@@ -118,6 +120,7 @@ export function SlicerBody({ w, editing }: { w: Widget; editing?: boolean }) {
   const cur = slicers[w.id] ?? null;
   const selected: any[] = cur?.values ?? [];
   const multi = cfg.multi !== false && mode !== 'radio';
+  const look: Look = { fontSize: cfg.fontSize, color: cfg.textColor, controlBg: cfg.controlBg, controlBorder: cfg.controlBorder, radius: cfg.radius };
   const set = (f: ColumnFilter | null) => setSlicer(w.id, f);
   const setValues = (v: any[]) => set(v.length && col ? { columnId: col.id, mode: 'include', values: v } : null);
 
@@ -126,14 +129,14 @@ export function SlicerBody({ w, editing }: { w: Widget; editing?: boolean }) {
 
   let body: React.ReactNode = null;
   if (mode === 'dropdown_search' || mode === 'dropdown')
-    body = <DropdownSlicer items={items} selected={selected} multi={multi} search={mode === 'dropdown_search'} placeholder={cfg.placeholder || `เลือก ${col.name}`} onChange={setValues} />;
+    body = <DropdownSlicer items={items} selected={selected} multi={multi} search={mode === 'dropdown_search'} placeholder={cfg.placeholder || `เลือก ${col.name}`} onChange={setValues} look={look} />;
   else if (mode === 'chips')
     body = (
       <div className="flex flex-wrap gap-1.5">
         {items.map((i) => {
           const on = selected.includes(i.value);
           return <button key={String(i.value)} onMouseDown={(e) => e.stopPropagation()} onClick={() => setValues(on ? selected.filter((x) => x !== i.value) : multi ? [...selected, i.value] : [i.value])}
-            className={cn('rounded-full border px-3 py-1 text-xs transition-colors', on ? 'border-primary bg-primary text-white' : 'border-line hover:border-primary/50')}>{i.label}</button>;
+            className={cn('rounded-full border px-3 py-1 transition-colors', on ? 'border-primary bg-primary text-white' : 'border-line hover:border-primary/50')}>{i.label}</button>;
         })}
       </div>
     );
@@ -144,7 +147,7 @@ export function SlicerBody({ w, editing }: { w: Widget; editing?: boolean }) {
           const on = selected.includes(i.value);
           return (
             <button key={String(i.value)} onMouseDown={(e) => e.stopPropagation()} onClick={() => setValues(mode === 'radio' ? (on ? [] : [i.value]) : on ? selected.filter((x) => x !== i.value) : [...selected, i.value])}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm hover:bg-ink/5">
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-ink/5">
               <span className={cn('grid h-4 w-4 shrink-0 place-items-center border', mode === 'radio' ? 'rounded-full' : 'rounded', on ? 'border-primary bg-primary text-white' : 'border-line')}>{on && <Check className="h-3 w-3" />}</span>
               <span className="min-w-0 flex-1 truncate">{i.label}</span><span className="text-xs text-muted tabular-nums">{i.count}</span>
             </button>
@@ -153,7 +156,7 @@ export function SlicerBody({ w, editing }: { w: Widget; editing?: boolean }) {
       </div>
     );
   else if (mode === 'search')
-    body = <SearchInput value={cur?.value ?? ''} onChange={(v) => set(v ? { columnId: col.id, op: 'contains', value: v } : null)} />;
+    body = <SearchInput look={look} value={cur?.value ?? ''} onChange={(v) => set(v ? { columnId: col.id, op: 'contains', value: v } : null)} />;
   else if (mode === 'range' || mode === 'date') {
     const type = mode === 'date' ? 'date' : 'number';
     const a = cur?.value ?? '';
@@ -164,29 +167,29 @@ export function SlicerBody({ w, editing }: { w: Widget; editing?: boolean }) {
     const hi = cur?.op === 'lte' ? a : b;
     body = (
       <div className="flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
-        <input type={type} value={lo} onChange={(e) => upd(e.target.value, hi)} className="ds-input h-9 min-w-0 flex-1 px-2 text-sm" placeholder="ตั้งแต่" />
+        <input type={type} value={lo} onChange={(e) => upd(e.target.value, hi)} className="ds-input h-9 min-w-0 flex-1 px-2" style={{ background: look.controlBg || undefined, borderColor: look.controlBorder || undefined, borderRadius: look.radius }} placeholder="ตั้งแต่" />
         <span className="text-muted">–</span>
-        <input type={type} value={hi} onChange={(e) => upd(lo, e.target.value)} className="ds-input h-9 min-w-0 flex-1 px-2 text-sm" placeholder="ถึง" />
+        <input type={type} value={hi} onChange={(e) => upd(lo, e.target.value)} className="ds-input h-9 min-w-0 flex-1 px-2" style={{ background: look.controlBg || undefined, borderColor: look.controlBorder || undefined, borderRadius: look.radius }} placeholder="ถึง" />
         {cur && <button onClick={() => set(null)} aria-label="ล้าง" className="rounded p-1 hover:bg-ink/10"><X className="h-4 w-4" /></button>}
       </div>
     );
   }
   return (
-    <div className="flex h-full flex-col gap-1.5" onMouseDown={(e) => { if (!editing) e.stopPropagation(); }}>
-      {cfg.showLabel !== false && <p className="flex items-center gap-2 text-xs font-medium opacity-70">{cfg.label || col.name}{cur && <button className="ml-auto text-[11px] text-primary hover:underline" onClick={() => set(null)}>ล้าง</button>}</p>}
+    <div className="flex h-full flex-col gap-1.5" style={{ fontSize: cfg.fontSize ?? 14, color: cfg.textColor || undefined }} onMouseDown={(e) => { if (!editing) e.stopPropagation(); }}>
+      {cfg.showLabel !== false && <p className="flex items-center gap-2 font-medium opacity-70" style={{ fontSize: cfg.labelSize ?? 12, color: cfg.labelColor || undefined, opacity: cfg.labelColor ? 1 : undefined }}>{cfg.label || col.name}{cur && <button className="ml-auto text-[11px] text-primary hover:underline" onClick={() => set(null)}>ล้าง</button>}</p>}
       <div className="min-h-0 flex-1 overflow-y-auto">{loading && !items.length && listMode ? <div className="skeleton h-9 w-full" /> : body}</div>
     </div>
   );
 }
 
-function SearchInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function SearchInput({ value, onChange, look }: { value: string; onChange: (v: string) => void; look: Look }) {
   const [v, setV] = useState(String(value));
   const d = useDebounce(v, 350);
   useEffect(() => { if (d !== value) onChange(d); }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3" style={{ background: look.controlBg || undefined, borderColor: look.controlBorder || undefined, borderRadius: look.radius }} onMouseDown={(e) => e.stopPropagation()}>
       <Search className="h-4 w-4 text-muted" />
-      <input value={v} onChange={(e) => setV(e.target.value)} placeholder="พิมพ์เพื่อค้นหา…" className="h-10 w-full bg-transparent text-sm outline-none" />
+      <input value={v} onChange={(e) => setV(e.target.value)} placeholder="พิมพ์เพื่อค้นหา…" className="h-10 w-full bg-transparent outline-none" />
     </div>
   );
 }

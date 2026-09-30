@@ -75,7 +75,7 @@ export function Popover({
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body,
+    document.fullscreenElement ?? document.body, // inside the top layer while a page is full screen
   );
 }
 

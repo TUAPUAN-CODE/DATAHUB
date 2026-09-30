@@ -29,7 +29,7 @@ function Section({ title, icon, children, storageKey }: { title: string; icon: R
   );
 }
 
-function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarBody({ onNavigate, scope }: { onNavigate?: () => void; scope: string }) {
   const user = useAuth((s) => s.user)!;
   const logout = useAuth((s) => s.logout);
   const favorites = useData((s) => s.favorites);
@@ -62,9 +62,14 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           {items.map((it) => (
             <NavLink key={it.to} to={it.to} end={it.to === '/'} onClick={onNavigate}
               className={({ isActive }) => cn('nav-link', (it.active ?? isActive) && 'active')}>
-              {it.icon}
-              <span className="flex-1">{it.label}</span>
-              {!!it.badge && <span className="mr-2 grid h-5 min-w-5 place-items-center rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white">{it.badge}</span>}
+              {({ isActive }) => (
+                <>
+                  {(it.active ?? isActive) && <motion.span layoutId={`nav-pill-${scope}`} className="nav-pill" transition={{ type: 'spring', stiffness: 420, damping: 38 }} />}
+                  {it.icon}
+                  <span className="flex-1">{it.label}</span>
+                  {!!it.badge && <span className="mr-2 grid h-5 min-w-5 place-items-center rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white">{it.badge}</span>}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -104,14 +109,14 @@ export function Sidebar() {
   const setMobile = useUi((s) => s.setMobileNav);
   return (
     <>
-      <aside className="ds-sidebar hidden h-full shrink-0 lg:block"><SidebarBody /></aside>
+      <aside className="ds-sidebar hidden h-full shrink-0 lg:block"><SidebarBody scope="desktop" /></aside>
       <AnimatePresence>
         {mobile && (
           <motion.div className="fixed inset-0 z-[850] lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-slate-900/50" onClick={() => setMobile(false)} />
             <motion.aside className="ds-sidebar relative h-full max-w-[85vw]" initial={{ x: -300 }} animate={{ x: 0 }} exit={{ x: -300 }} transition={{ type: 'spring', stiffness: 380, damping: 36 }}>
               <button onClick={() => setMobile(false)} className="absolute right-3 top-6 rounded-lg p-1.5 opacity-80 hover:bg-white/10" aria-label="ปิดเมนู"><X className="h-5 w-5" /></button>
-              <SidebarBody onNavigate={() => setMobile(false)} />
+              <SidebarBody scope="mobile" onNavigate={() => setMobile(false)} />
             </motion.aside>
           </motion.div>
         )}

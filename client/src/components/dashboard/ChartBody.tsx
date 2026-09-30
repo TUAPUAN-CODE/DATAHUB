@@ -156,7 +156,7 @@ export function ChartBody({ w, data }: { w: Widget; data: WidgetData }) {
   const oocPoint = (v: number) => isSpc && st.ucl !== undefined && st.lcl !== undefined && (v > st.ucl || v < st.lcl);
 
   const xAxis = (
-    <XAxis dataKey="name" hide={cfg.showX === false} tick={axisTick(cfg.xFontSize)} stroke={colors.border} angle={Number(cfg.xAngle ?? 0)}
+    <XAxis dataKey="name" hide={cfg.showX === false} padding={type === 'line' || type === 'area' || isSpc ? { left: 24, right: 24 } : undefined} tick={axisTick(cfg.xFontSize)} stroke={colors.border} angle={Number(cfg.xAngle ?? 0)}
       textAnchor={cfg.xAngle ? 'end' : 'middle'} height={(cfg.xAngle ? 60 : 30) + (cfg.xTitle ? 16 : 0)} interval={cfg.xInterval ?? 'preserveStartEnd'}
       label={cfg.xTitle ? { value: cfg.xTitle, position: 'insideBottom', offset: 0, fill: colors.muted, fontSize: 11 } : undefined} />
   );

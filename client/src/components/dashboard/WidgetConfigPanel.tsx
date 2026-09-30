@@ -281,6 +281,18 @@ function StyleTab({ w, set }: { w: Widget; set: (p: Partial<Widget>) => void }) 
           <Field label="ชื่อที่แสดง"><TextInput value={c.label ?? ''} onChange={(e) => setC({ label: e.target.value })} placeholder="ตามชื่อคอลัมน์" /></Field>
           <Field label="ข้อความก่อนเลือก"><TextInput value={c.placeholder ?? ''} onChange={(e) => setC({ placeholder: e.target.value })} placeholder="เลือก…" /></Field>
           <Toggle checked={c.showLabel !== false} onChange={(v) => setC({ showLabel: v })} label="แสดงชื่อตัวกรอง" />
+          <div className="space-y-2 rounded-xl border border-line p-2.5">
+            <p className="text-[13px] font-medium">ตัวอักษร / สี</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Num label="ขนาดตัวอักษร" value={c.fontSize ?? 14} onChange={(v) => setC({ fontSize: v })} min={8} max={48} />
+              <Num label="ขนาดชื่อตัวกรอง" value={c.labelSize ?? 12} onChange={(v) => setC({ labelSize: v })} min={8} max={48} />
+              <Field label="สีตัวอักษร"><ColorInput value={c.textColor} onChange={(v) => setC({ textColor: v ?? '' })} allowEmpty /></Field>
+              <Field label="สีชื่อตัวกรอง"><ColorInput value={c.labelColor} onChange={(v) => setC({ labelColor: v ?? '' })} allowEmpty /></Field>
+              <Field label="สีพื้นช่อง"><ColorInput value={c.controlBg} onChange={(v) => setC({ controlBg: v ?? '' })} allowEmpty /></Field>
+              <Field label="สีขอบช่อง"><ColorInput value={c.controlBorder} onChange={(v) => setC({ controlBorder: v ?? '' })} allowEmpty /></Field>
+              <Num label="มุมโค้งของช่อง" value={c.radius} onChange={(v) => setC({ radius: v })} min={0} max={40} />
+            </div>
+          </div>
           {['dropdown_search', 'dropdown', 'list', 'chips'].includes(c.mode ?? 'dropdown_search') && <Toggle checked={c.multi !== false} onChange={(v) => setC({ multi: v })} label="เลือกได้หลายค่า" />}
           <TargetPicker w={w} set={set} />
         </div>
