@@ -13,6 +13,7 @@ import { errorHandler } from './middleware/error';
 import { logger } from './shared/logger';
 import { initSocket } from './socket';
 import { purgeExpiredTrash } from './services/purge';
+import { applyMigrations } from './scripts/migrate';
 import accessRoutes from './routes/access';
 import activityRoutes from './routes/activity';
 import auditRoutes from './routes/audit';
@@ -29,6 +30,7 @@ import searchRoutes from './routes/search';
 import sheetRoutes from './routes/sheets';
 import themeRoutes from './routes/themes';
 import trashRoutes from './routes/trash';
+import { shareManageRouter, sharePublicRouter } from './routes/share';
 import uploadRoutes from './routes/uploads';
 import userRoutes from './routes/users';
 
@@ -52,10 +54,11 @@ app.get('/api/health', async (_req, res) => {
 
 app.use('/api', rateLimit({ windowMs: 60_000, max: env.rateLimitPerMin, standardHeaders: true, legacyHeaders: false }));
 app.use('/api/auth', authRoutes);
+app.use('/api', sharePublicRouter);
 app.use('/api', authenticate);
 for (const r of [
   userRoutes, folderRoutes, fileRoutes, sheetRoutes, columnRoutes, rowRoutes, cellRoutes, accessRoutes, auditRoutes,
-  favoriteRoutes, activityRoutes, searchRoutes, notificationRoutes, themeRoutes, dashboardRoutes, uploadRoutes, trashRoutes,
+  favoriteRoutes, activityRoutes, searchRoutes, notificationRoutes, themeRoutes, dashboardRoutes, uploadRoutes, trashRoutes, shareManageRouter,
 ]) app.use('/api', r);
 app.use('/api', (_req, res) => {
   res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'ไม่พบ API ที่เรียก' } });
@@ -75,6 +78,7 @@ const server = http.createServer(app);
 initSocket(server);
 
 getPool()
+  .then(() => applyMigrations())
   .then(() => {
     server.listen(env.port, '0.0.0.0', () =>
       logger.info(`DataSheet Pro API listening on http://0.0.0.0:${env.port} (LAN: http://172.48.0.116:${env.port})`)

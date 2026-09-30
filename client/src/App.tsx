@@ -1,4 +1,4 @@
-import { lazy, ReactNode, useEffect } from 'react';
+import { lazy, ReactNode, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { ConfirmHost, Toaster } from '@/components/ui/Feedback';
@@ -17,6 +17,8 @@ const AccessRequestsPage = lazy(() => import('@/pages/AccessRequestsPage'));
 const AuditPage = lazy(() => import('@/pages/AuditPage'));
 const UsersPage = lazy(() => import('@/pages/UsersPage'));
 const TrashPage = lazy(() => import('@/pages/TrashPage'));
+const DashboardsPage = lazy(() => import('@/pages/DashboardsPage'));
+const PublicSharePage = lazy(() => import('@/pages/PublicSharePage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -46,6 +48,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/login" element={status === 'authed' ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/s/:token" element={<Suspense fallback={<div className="grid h-full place-items-center"><Spinner /></div>}><PublicSharePage /></Suspense>} />
         <Route element={<RequireAuth><AppShell /></RequireAuth>}>
           <Route index element={<HomePage />} />
           <Route path="browse" element={<FolderPage />} />
@@ -58,6 +61,7 @@ export default function App() {
           <Route path="audit" element={<RequireRole roles={['master', 'admin']}><AuditPage /></RequireRole>} />
           <Route path="users" element={<RequireRole roles={['admin']}><UsersPage /></RequireRole>} />
           <Route path="trash" element={<TrashPage />} />
+          <Route path="dashboards" element={<DashboardsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Route>

@@ -126,6 +126,8 @@ export function DuplicateDialog({ open, onClose, file, onDone }: { open: boolean
   );
 }
 
+import { ShareLinksSection } from './ShareLinks';
+
 /* ---------------- Share ---------------- */
 const EXPIRY = [
   { v: '', label: 'ไม่มีวันหมดอายุ' }, { v: '7', label: '7 วัน' }, { v: '30', label: '30 วัน' }, { v: '90', label: '90 วัน' }, { v: '365', label: '1 ปี' },
@@ -184,6 +186,7 @@ export function ShareDialog({ open, onClose, target }: { open: boolean; onClose:
   return (
     <Modal open={open} onClose={onClose} size="lg" icon={<Share2 className="h-5 w-5" />} title={`แชร์ “${target.name}”`}
       description={target.type === 'folder' ? 'สิทธิ์ของโฟลเดอร์จะสืบทอดไปยังโฟลเดอร์ย่อยและไฟล์ทั้งหมดภายใน' : 'สิทธิ์รายไฟล์ ใช้ร่วมกับสิทธิ์ที่สืบทอดจากโฟลเดอร์ (ใช้ระดับที่สูงกว่า)'}>
+      {target.type === 'file' && <ShareLinksSection fileId={target.id} />}
       <div className="flex flex-col gap-2 rounded-2xl bg-ink/[.03] p-3 sm:flex-row">
         <div className="min-w-0 flex-1">
           <SearchSelect value={userId} onChange={(v) => setUserId(v)} placeholder="ค้นหาผู้ใช้เพื่อเพิ่ม…"

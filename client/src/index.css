@@ -40,13 +40,15 @@ body {
   .ds-sidebar { background: var(--sidebar-bg); color: var(--sidebar-text); width: var(--sidebar-w); }
   .nav-link { position: relative; display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 18px;
     margin-left: 14px; border-radius: 999px 0 0 999px; color: var(--sidebar-text); opacity: .82;
-    transition: background-color .2s, color .2s, opacity .2s; font-weight: 500; white-space: nowrap; }
+    transition: background-color .25s ease, color .25s ease, opacity .25s ease; font-weight: 500; white-space: nowrap; }
   .nav-link:hover { background: rgb(255 255 255 / .1); opacity: 1; }
   .nav-link.active { background: rgb(var(--c-bg)); color: rgb(var(--c-primary)); opacity: 1; }
-  .nav-link.active::before, .nav-link.active::after { content: ''; position: absolute; right: 0; width: 24px; height: 24px;
-    background: transparent; pointer-events: none; }
-  .nav-link.active::before { top: -24px; border-bottom-right-radius: 24px; box-shadow: 8px 8px 0 8px rgb(var(--c-bg)); }
-  .nav-link.active::after { bottom: -24px; border-top-right-radius: 24px; box-shadow: 8px -8px 0 8px rgb(var(--c-bg)); }
+  /* The inverted corners are always mounted and fade with the pill, so they never pop in before the background */
+  .nav-link::before, .nav-link::after { content: ''; position: absolute; right: 0; width: 24px; height: 24px;
+    background: transparent; pointer-events: none; opacity: 0; transition: opacity .25s ease; }
+  .nav-link::before { top: -24px; border-bottom-right-radius: 24px; box-shadow: 8px 8px 0 8px rgb(var(--c-bg)); }
+  .nav-link::after { bottom: -24px; border-top-right-radius: 24px; box-shadow: 8px -8px 0 8px rgb(var(--c-bg)); }
+  .nav-link.active::before, .nav-link.active::after { opacity: 1; }
   .side-item { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 10px;
     color: var(--sidebar-text); opacity: .8; font-size: 13px; transition: background-color .15s, opacity .15s; }
   .side-item:hover, .side-item.active { background: rgb(255 255 255 / .12); opacity: 1; }

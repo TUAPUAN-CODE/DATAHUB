@@ -24,12 +24,14 @@ interface Props {
   onFilterColumn: (columnId: string, anchor: HTMLElement) => void;
   onColumnSettings: () => void;
   onDeleteRows: (ids: string[]) => void;
+  /** Ids of the rows touched by the current selection (drives the toolbar delete button) */
+  onSelectRows?: (ids: string[]) => void;
 }
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 const EDIT_INLINE_TYPED = new Set(['varchar', 'text', 'int', 'float', 'url', 'email']);
 
-export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHistory, onRowHistory, onFilterColumn, onColumnSettings, onDeleteRows }: Props) {
+export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHistory, onRowHistory, onFilterColumn, onColumnSettings, onDeleteRows, onSelectRows }: Props) {
   const { columns: cols, rows, prefs, setPrefs, query, setQuery, commit, users, flash } = view;
   const scrollRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -62,6 +64,8 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
   const totalW = RN + cols.reduce((s, c) => s + colW(c), 0);
 
   const bounds = sel ? { r1: Math.min(sel.a.r, sel.f.r), r2: Math.max(sel.a.r, sel.f.r), c1: Math.min(sel.a.c, sel.f.c), c2: Math.max(sel.a.c, sel.f.c) } : null;
+  const selKey = bounds ? rows.slice(bounds.r1, bounds.r2 + 1).map((r) => r.id).join(',') : '';
+  useEffect(() => { onSelectRows?.(selKey ? selKey.split(',') : []); }, [selKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const inSel = (r: number, c: number) => !!bounds && r >= bounds.r1 && r <= bounds.r2 && c >= bounds.c1 && c <= bounds.c2;
 
   // keep selection valid when data changes
@@ -379,9 +383,16 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                     onClick={() => cols.length && setSel({ a: { r: ri, c: 0 }, f: { r: ri, c: cols.length - 1 } })}
                     onContextMenu={(e) => { e.preventDefault(); setMenu({ anchor: { x: e.clientX, y: e.clientY }, kind: 'row', r: ri, c: 0 }); }}>
                     <span className="group-hover/rn:hidden">{row.order}</span>
-                    <button onClick={(e) => { e.stopPropagation(); onOpenRow(row); }} className="hidden w-full place-items-center text-primary group-hover/rn:grid" title="เปิดแถวในฟอร์ม" aria-label="เปิดแถวในฟอร์ม">
-                      <Maximize2 className="h-[1.05em] w-[1.05em]" />
-                    </button>
+                    <span className="hidden w-full items-center justify-center gap-1.5 group-hover/rn:flex">
+                      <button onClick={(e) => { e.stopPropagation(); onOpenRow(row); }} className="text-primary" title="เปิดแถวในฟอร์ม" aria-label="เปิดแถวในฟอร์ม">
+                        <Maximize2 className="h-[1.05em] w-[1.05em]" />
+                      </button>
+                      {canWrite && (
+                        <button onClick={(e) => { e.stopPropagation(); onDeleteRows([row.id]); }} className="text-danger" title="ลบแถวนี้" aria-label="ลบแถวนี้">
+                          <Trash2 className="h-[1.05em] w-[1.05em]" />
+                        </button>
+                      )}
+                    </span>
                     <span className="row-resizer" onMouseDown={(e) => startRowResize(e, row)} />
                   </td>
                   {cols.map((col, ci) => {

@@ -146,7 +146,9 @@ export const themesApi = {
   resetOrg: () => del('/themes/org'),
 };
 
+export interface DashboardListItem { id: string; name: string; updatedAt: string; fileId: string; fileName: string; fileColor: string; path: string; canEdit: boolean }
 export const dashboardsApi = {
+  all: () => get<DashboardListItem[]>('/dashboards'),
   list: (fileId: string) => get<DashboardMeta[]>(`/files/${fileId}/dashboards`),
   create: (fileId: string, name: string) => post<DashboardMeta>(`/files/${fileId}/dashboards`, { name }),
   get: (id: string) => get<{ dashboard: DashboardMeta; widgets: Widget[]; file: { id: string; name: string }; sheets: Sheet[]; level: number }>(`/dashboards/${id}`),
@@ -168,4 +170,22 @@ export const trashApi = {
   list: () => get<{ retentionDays: number; items: TrashItem[] }>('/trash'),
   restore: (type: 'file' | 'folder', id: string) => post('/trash/restore', { type, id }),
   purge: (type: 'file' | 'folder', id: string) => del(`/trash/${type}/${id}`),
+};
+
+
+export interface ShareLink {
+  id: string; token: string; permission: 'read' | 'write' | 'manage'; allowGuest: boolean; expiresAt: string | null; isActive: boolean;
+  createdAt: string; createdByName: string | null; accessCount: number; lastUsedAt: string | null; expired: boolean;
+}
+export const shareApi = {
+  list: (fileId: string) => get<ShareLink[]>(`/files/${fileId}/share-links`),
+  create: (fileId: string, b: { permission: ShareLink['permission']; allowGuest: boolean; expiresAt?: string | null }) => post<ShareLink>(`/files/${fileId}/share-links`, b),
+  update: (id: string, b: { permission: ShareLink['permission']; allowGuest: boolean }) => put(`/share-links/${id}`, b),
+  revoke: (id: string) => del(`/share-links/${id}`),
+  redeem: (token: string) => post<{ fileId: string; permission: string; granted: boolean }>(`/share/${token}/redeem`),
+};
+export const publicShareApi = {
+  info: (token: string) => get<{ file: { id: string; name: string; color: string }; permission: string; allowGuest: boolean; sheets: Sheet[] }>(`/public/share/${token}`),
+  sheet: (token: string, sheetId: string) => get<{ sheet: Sheet; columns: Column[] }>(`/public/share/${token}/sheets/${sheetId}`),
+  rows: (token: string, sheetId: string, b: { page: number; pageSize: number; search?: string; sorts?: SortSpec[] }) => post<RowPage>(`/public/share/${token}/sheets/${sheetId}/rows`, b),
 };

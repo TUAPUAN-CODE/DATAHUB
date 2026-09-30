@@ -20,7 +20,7 @@ import { AvatarStack, EmptyState, Pager, PermBadge, Skeleton, StarButton } from 
 import { MenuList, Popover } from '@/components/ui/Popover';
 import { isTyping, useDebounce, useLoad } from '@/hooks';
 import { cn } from '@/lib/cn';
-import { downloadCsv } from '@/lib/csv';
+import { downloadCsv, downloadXlsx } from '@/lib/csv';
 import { fmtDateTime, levelToPerm } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
@@ -66,11 +66,14 @@ export default function FilePage() {
   const [rowForm, setRowForm] = useState<{ row: Row | null } | null>(null);
   const [cellHist, setCellHist] = useState<{ row: Row; col: Column } | null>(null);
   const [rowHist, setRowHist] = useState<Row | null>(null);
+  const [selRows, setSelRows] = useState<string[]>([]);
   const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'share' | 'rename' | 'dup' | null>(null);
   const [more, setMore] = useState(false);
   const [freeze, setFreeze] = useState(false);
   const [full, setFull] = useState(false);
   const moreBtn = useRef<HTMLButtonElement>(null);
+  const exportBtn = useRef<HTMLButtonElement>(null);
+  const [exportMenu, setExportMenu] = useState(false);
   const freezeBtn = useRef<HTMLButtonElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
 
@@ -96,7 +99,7 @@ export default function FilePage() {
   const toggleFull = async () => {
     try { if (document.fullscreenElement) await document.exitFullscreen(); else await workspace.current?.requestFullscreen(); } catch { toast.info('เบราว์เซอร์ไม่รองรับโหมดเต็มจอ'); }
   };
-  const exportCsv = async () => {
+  const exportRows = async (format: 'csv' | 'xlsx') => {
     if (!sheetId || !view.detail) return;
     try {
       const all: Row[] = [];
@@ -105,10 +108,13 @@ export default function FilePage() {
         all.push(...r.rows);
         if (all.length >= r.total) break;
       }
-      downloadCsv(`${file.data?.file.name ?? 'export'} - ${view.detail.sheet.name}`, view.columns, all);
+      const name = `${file.data?.file.name ?? 'export'} - ${view.detail.sheet.name}`;
+      if (format === 'xlsx') await downloadXlsx(name, view.detail.sheet.name, view.columns, all);
+      else downloadCsv(name, view.columns, all);
       toast.success(`ส่งออก ${all.length.toLocaleString()} แถวแล้ว`);
     } catch (e) { toast.error(e); }
   };
+  const exportCsv = () => exportRows('csv');
   const deleteRows = async (ids: string[]) => {
     if (await confirmDialog({ title: `ลบ ${ids.length} แถว?`, message: 'แถวจะถูกย้ายไปถังขยะของชีตและกู้คืนได้', danger: true, confirmText: 'ลบ' })) await view.deleteRows(ids);
   };
@@ -142,6 +148,7 @@ export default function FilePage() {
             ...(canManage ? [{ label: 'เปลี่ยนชื่อ / สี', icon: <Pencil />, onClick: () => setModal('rename') }] : []),
             ...(role !== 'user' ? [{ label: 'ทำสำเนาไฟล์', icon: <Copy />, onClick: () => setModal('dup') }] : []),
             ...(canManage ? [{ label: 'ประวัติการแก้ไขของไฟล์', icon: <History />, onClick: () => nav(`/audit?fileId=${f.id}`) }] : []),
+            { label: 'ส่งออก Excel (.xlsx)', icon: <Download />, onClick: () => void exportRows('xlsx') },
             { label: 'ส่งออก CSV', icon: <Download />, onClick: () => void exportCsv() },
             ...(canManage ? [{ divider: true }, { label: 'ลบไฟล์', icon: <Trash2 />, danger: true, onClick: async () => {
               if (!(await confirmDialog({ title: `ลบไฟล์ “${f.name}”?`, message: 'ไฟล์จะถูกย้ายไปถังขยะ', danger: true, confirmText: 'ลบไฟล์' }))) return;
@@ -161,6 +168,7 @@ export default function FilePage() {
             <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2">
               <TextInput icon={<Search />} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาในชีต…" className="!h-9 w-full sm:w-64" />
               {canWrite && <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setRowForm({ row: null })}>เพิ่มแถว</Button>}
+              {canWrite && selRows.length > 0 && <Button size="sm" variant="secondary" className="!text-danger" icon={<Trash2 className="h-4 w-4" />} onClick={() => void deleteRows(selRows)}>{selRows.length > 1 ? `ลบ ${selRows.length} แถวที่เลือก` : 'ลบแถวที่เลือก'}</Button>}
               {canManage && <Button size="sm" variant="secondary" icon={<Columns3 className="h-4 w-4" />} onClick={() => setModal('columns')}>คอลัมน์</Button>}
               <div className="mx-1 hidden h-6 w-px bg-line sm:block" />
               <IconButton label="ย้อนกลับ (Ctrl+Z)" onClick={() => void view.undo()} disabled={!view.canUndo}><Undo2 className="h-4 w-4" /></IconButton>
@@ -180,7 +188,13 @@ export default function FilePage() {
               <div className="ml-auto flex items-center gap-1">
                 {canWrite && <IconButton label="แถวที่ถูกลบ" onClick={() => setModal('trash')}><Trash2 className="h-4 w-4" /></IconButton>}
                 {role === 'admin' && <IconButton label="ย้อนข้อมูลทั้งชีต" onClick={() => setModal('rollback')}><RotateCcw className="h-4 w-4" /></IconButton>}
-                <IconButton label="ส่งออก CSV" onClick={() => void exportCsv()}><Download className="h-4 w-4" /></IconButton>
+                <IconButton ref={exportBtn} label="ส่งออกไฟล์" onClick={() => setExportMenu(true)}><Download className="h-4 w-4" /></IconButton>
+                <Popover open={exportMenu} onClose={() => setExportMenu(false)} anchor={exportBtn.current} placement="bottom-end" width={220}>
+                  <MenuList onClose={() => setExportMenu(false)} items={[
+                    { label: 'Excel (.xlsx)', icon: <Download />, onClick: () => void exportRows('xlsx') },
+                    { label: 'CSV (.csv)', icon: <Download />, onClick: () => void exportRows('csv') },
+                  ]} />
+                </Popover>
                 <div className="mx-1 h-6 w-px bg-line" />
                 <IconButton label="ซูมออก (Ctrl -)" onClick={() => zoom(-0.1)}><ZoomOut className="h-4 w-4" /></IconButton>
                 <button onClick={() => view.setPrefs({ zoom: 1 })} className="w-12 rounded-md py-1 text-center text-xs font-medium tabular-nums hover:bg-ink/5" title="รีเซ็ตซูม (Ctrl 0)">{Math.round(view.prefs.zoom * 100)}%</button>
@@ -196,7 +210,7 @@ export default function FilePage() {
                 <div className="space-y-1.5 p-3">{Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-8" />)}</div>
               ) : (
                 <SpreadsheetGrid view={view} canWrite={canWrite} canManage={canManage} onOpenRow={(row) => setRowForm({ row })} onCellHistory={(row, col) => setCellHist({ row, col })}
-                  onRowHistory={setRowHist} onFilterColumn={(colId, el) => setFilterFor({ colId, el })} onColumnSettings={() => setModal('columns')} onDeleteRows={deleteRows} />
+                  onRowHistory={setRowHist} onFilterColumn={(colId, el) => setFilterFor({ colId, el })} onColumnSettings={() => setModal('columns')} onDeleteRows={deleteRows} onSelectRows={setSelRows} />
               )}
               {view.loadingRows && view.rows.length > 0 && <div className="absolute inset-x-0 top-0 h-0.5 animate-pulse bg-primary" />}
             </div>
