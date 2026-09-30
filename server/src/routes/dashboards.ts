@@ -4,13 +4,14 @@ import { q, q1, T, withTx } from '../config/db';
 import { audit } from '../shared/audit';
 import { ah, isGuid, notFound, ok, parse, pid } from '../shared/http';
 import { mapDashboard, mapSheet, mapWidget } from '../shared/mappers';
-import { LV, requireFile } from '../shared/permissions';
+import { LV, PermCtx, requireFile } from '../shared/permissions';
 import { filterSchema } from '../shared/schemas';
 import { computeWidgetData } from '../services/widgetData';
 
 const router = Router();
 
-const WIDGET_TYPES = ['bar', 'line', 'area', 'pie', 'doughnut', 'scatter', 'kpi', 'table', 'text', 'image', 'shape'] as const;
+const WIDGET_TYPES = ['bar', 'line', 'area', 'pie', 'doughnut', 'scatter', 'kpi', 'table', 'text', 'image', 'shape',
+  'heatmap', 'pareto', 'histogram', 'xchart', 'xbar', 'pct', 'slicer', 'card', 'condition'] as const;
 
 const dataSourceSchema = z.object({
   sheetId: z.string().regex(/^[0-9a-fA-F-]{36}$/).transform((s) => s.toLowerCase()),
@@ -30,6 +31,8 @@ const dataSourceSchema = z.object({
   filters: z.array(filterSchema).max(20).optional(),
   sort: z.enum(['x_asc', 'x_desc', 'value_asc', 'value_desc']).optional(),
   limit: z.number().int().min(1).max(500).optional(),
+  kind: z.enum(['histogram', 'xchart', 'xbar']).nullish(),
+  bins: z.number().int().min(2).max(100).optional(),
 });
 
 const widgetSchema = z.object({
@@ -52,6 +55,29 @@ async function getDashboard(id: string) {
   if (!d) throw notFound('ไม่พบแดชบอร์ด');
   return d;
 }
+
+/** Every dashboard the current user can open (read access to its file) */
+router.get(
+  '/dashboards',
+  ah(async (req, res) => {
+    const rows = await q(
+      `SELECT d.dashboard_id, d.dashboard_name, d.updated_at, d.file_id, f.file_name, f.folder_id, f.created_by AS file_created_by, f.color AS file_color
+       FROM Dashboards d JOIN Files f ON f.file_id = d.file_id
+       WHERE f.is_deleted = 0 ORDER BY d.updated_at DESC`,
+    );
+    const ctx = await PermCtx.load(req.user!);
+    ok(
+      res,
+      rows
+        .map((r) => ({ r, level: ctx.fileLevel({ file_id: r.file_id, folder_id: r.folder_id, created_by: r.file_created_by }) }))
+        .filter((x) => x.level >= LV.read)
+        .map(({ r, level }) => ({
+          id: r.dashboard_id, name: r.dashboard_name, updatedAt: r.updated_at, fileId: r.file_id, fileName: r.file_name,
+          fileColor: r.file_color, path: ctx.pathText(r.folder_id), canEdit: level >= LV.manage,
+        })),
+    );
+  }),
+);
 
 router.get(
   '/files/:fileId/dashboards',

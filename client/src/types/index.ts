@@ -80,16 +80,19 @@ export interface AuditEntry {
   ip: string | null; at: string;
 }
 
-export type WidgetType = 'bar' | 'line' | 'area' | 'pie' | 'doughnut' | 'scatter' | 'kpi' | 'table' | 'text' | 'image' | 'shape';
+export type WidgetType = 'bar' | 'line' | 'area' | 'pie' | 'doughnut' | 'scatter' | 'kpi' | 'table' | 'text' | 'image' | 'shape'
+  | 'heatmap' | 'pareto' | 'histogram' | 'xchart' | 'xbar' | 'pct' | 'slicer' | 'card' | 'condition';
 export type Agg = 'sum' | 'avg' | 'count' | 'count_distinct' | 'min' | 'max' | 'none';
 export interface DataSource {
   sheetId: string; xColumnId?: string | null; xBucket?: 'none' | 'day' | 'week' | 'month' | 'quarter' | 'year';
   series: { columnId?: string | null; aggregation: Agg; label?: string | null }[];
   groupByColumnId?: string | null; filters?: ColumnFilter[]; sort?: 'x_asc' | 'x_desc' | 'value_asc' | 'value_desc'; limit?: number;
+  kind?: 'histogram' | 'xchart' | 'xbar' | null; bins?: number;
 }
 export interface WidgetStyle {
   bg?: string; text?: string; border?: string; borderWidth?: number; radius?: number; shadow?: 'none' | 'sm' | 'md' | 'lg';
-  padding?: number; opacity?: number; showTitle?: boolean; titleSize?: number;
+  padding?: number; opacity?: number; showTitle?: boolean; titleSize?: number; titleAlign?: 'left' | 'center' | 'right'; subtitle?: string;
+  hidden?: boolean;
 }
 export interface Widget {
   id: string; type: WidgetType; title: string; x: number; y: number; w: number; h: number; z: number; locked: boolean;
@@ -103,4 +106,5 @@ export interface DashboardMeta {
 export interface WidgetData {
   categories: string[]; series: { key: string; name: string; values: (number | null)[] }[];
   points: { x: any; y: number | null }[]; totalRows: number;
+  stats?: { cl?: number; ucl?: number; lcl?: number; mean?: number; sd?: number; min?: number; max?: number; n?: number };
 }

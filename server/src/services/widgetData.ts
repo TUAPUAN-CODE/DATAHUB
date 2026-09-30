@@ -24,7 +24,24 @@ export interface DataSource {
   filters?: ColumnFilter[];
   sort?: 'x_asc' | 'x_desc' | 'value_asc' | 'value_desc';
   limit?: number;
+  /** Special statistical modes; the rest is a plain category/series aggregation */
+  kind?: 'histogram' | 'xchart' | 'xbar' | null;
+  bins?: number;
 }
+
+export interface SpcStats {
+  cl: number;
+  ucl: number;
+  lcl: number;
+}
+
+const A2: Record<number, number> = { 2: 1.88, 3: 1.023, 4: 0.729, 5: 0.577, 6: 0.483, 7: 0.419, 8: 0.373, 9: 0.337, 10: 0.308 };
+const mean = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+const stdev = (a: number[]) => {
+  if (a.length < 2) return 0;
+  const m = mean(a);
+  return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / (a.length - 1));
+};
 
 const AGG_TH: Record<Agg, string> = {
   sum: 'ผลรวม',
@@ -117,7 +134,7 @@ export async function computeWidgetData(user: AuthUser, ds: DataSource) {
 
   const p = new Params();
   const where = baseWhere(ds.sheetId, colMap, p, { filters: ds.filters });
-  const rowIds = await q(`SELECT TOP 200000 r.row_id FROM Rows r WHERE ${where}`, p.values);
+  const rowIds = await q(`SELECT TOP 200000 r.row_id FROM Rows r WHERE ${where} ORDER BY r.row_order, r.created_at`, p.values);
   const records = new Map<string, Record<string, unknown>>(rowIds.map((r) => [r.row_id, {}]));
   const uniqueNeed = [...new Set(need)];
   if (uniqueNeed.length && records.size) {
@@ -135,6 +152,67 @@ export async function computeWidgetData(user: AuthUser, ds: DataSource) {
   const all = [...records.values()];
   const seriesName = (s: SeriesDef) =>
     s.label || (s.aggregation === 'count' && !s.columnId ? 'จำนวนแถว' : `${AGG_TH[s.aggregation]} ${colMap.get(s.columnId ?? '')?.column_name ?? ''}`.trim());
+
+  // Statistical modes (histogram / X chart / X-bar chart)
+  if (ds.kind && ds.xColumnId) {
+    const vCol = ds.series[0]?.columnId;
+    const valueId = ds.kind === 'histogram' ? ds.xColumnId : vCol;
+    if (!valueId) throw badRequest('กรุณาเลือกคอลัมน์ตัวเลข');
+    const rowsIn = all.map((r) => ({ x: r[ds.xColumnId!], v: numeric(r[valueId]) })).filter((r) => r.v !== null) as { x: unknown; v: number }[];
+    if (ds.kind === 'histogram') {
+      const vals = rowsIn.map((r) => r.v);
+      const nb = clamp(ds.bins ?? 10, 2, 100);
+      const lo = vals.length ? Math.min(...vals) : 0;
+      const hi = vals.length ? Math.max(...vals) : 0;
+      const width = hi === lo ? 1 : (hi - lo) / nb;
+      const counts = new Array(nb).fill(0);
+      for (const v of vals) counts[Math.min(nb - 1, Math.floor((v - lo) / width))]++;
+      const fmt = (n: number) => String(Math.round(n * 100) / 100);
+      return {
+        categories: counts.map((_, i) => `${fmt(lo + i * width)}–${fmt(lo + (i + 1) * width)}`),
+        series: [{ key: 's0', name: 'จำนวน', values: counts as (number | null)[] }],
+        points: [],
+        totalRows: all.length,
+        stats: { mean: mean(vals), sd: stdev(vals), min: lo, max: hi, n: vals.length },
+      };
+    }
+    if (ds.kind === 'xchart') {
+      const vals = rowsIn.map((r) => r.v);
+      const cl = mean(vals);
+      const mr = mean(vals.slice(1).map((v, i) => Math.abs(v - vals[i])));
+      const stats: SpcStats = { cl, ucl: cl + 2.66 * mr, lcl: cl - 2.66 * mr };
+      return {
+        categories: rowsIn.slice(0, 500).map((r, i) => (r.x === null || r.x === undefined || r.x === '' ? String(i + 1) : String(r.x))),
+        series: [{ key: 's0', name: 'ค่าแต่ละตัว', values: vals.slice(0, 500) as (number | null)[] }],
+        points: [],
+        totalRows: all.length,
+        stats,
+      };
+    }
+    // xbar: subgroup means with limits from average range (A2) or pooled sigma
+    const groupsMap = new Map<string, number[]>();
+    for (const r of rowsIn) {
+      const k = r.x === null || r.x === undefined || r.x === '' ? BLANK : String(r.x);
+      if (!groupsMap.has(k)) groupsMap.set(k, []);
+      groupsMap.get(k)!.push(r.v);
+    }
+    const subs = [...groupsMap.entries()].slice(0, 500);
+    const means = subs.map(([, g]) => mean(g));
+    const cl = mean(means);
+    const sizes = subs.map(([, g]) => g.length);
+    const nAvg = Math.round(mean(sizes)) || 1;
+    let half: number;
+    if (nAvg >= 2 && nAvg <= 10) half = A2[nAvg] * mean(subs.map(([, g]) => Math.max(...g) - Math.min(...g)));
+    else if (nAvg > 10) half = (3 * mean(subs.map(([, g]) => stdev(g)))) / Math.sqrt(nAvg);
+    else half = 2.66 * mean(means.slice(1).map((v, i) => Math.abs(v - means[i])));
+    return {
+      categories: subs.map(([k]) => k),
+      series: [{ key: 's0', name: 'ค่าเฉลี่ยกลุ่มย่อย', values: means as (number | null)[] }],
+      points: [],
+      totalRows: all.length,
+      stats: { cl, ucl: cl + half, lcl: cl - half } as SpcStats,
+    };
+  }
 
   // KPI / single value mode
   if (!ds.xColumnId) {

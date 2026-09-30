@@ -1,30 +1,44 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer,
-  Scatter, ScatterChart, Tooltip, XAxis, YAxis,
-} from 'recharts';
-import { AreaChart as AreaIcon, BarChart3, Circle, Donut, Gauge, ImageIcon, LineChart as LineIcon, PieChart as PieIcon, ScatterChart as ScatterIcon, Table2, Type } from 'lucide-react';
-import { apiError } from '@/api/client';
-import { dashboardsApi } from '@/api/endpoints';
+  AreaChart as AreaIcon, BarChart3, BellRing, Circle, Donut, Filter, Gauge, Grid3x3, ImageIcon, LayoutList, LineChart as LineIcon, PieChart as PieIcon,
+  ScatterChart as ScatterIcon, Sigma, StretchHorizontal, Table2, TrendingUp, Type, Activity, BarChartHorizontal,
+} from 'lucide-react';
 import { ensureFont } from '@/lib/fonts';
-import { compactNumber, fmtNumber } from '@/lib/format';
+import { fmtNumber } from '@/lib/format';
 import { SHADOWS } from '@/lib/theme';
 import { useTheme } from '@/store/theme';
 import type { DataSource, Widget, WidgetData, WidgetType } from '@/types';
+import { ChartBody, PALETTE } from './ChartBody';
+import { useDash, withSlicers } from './dashContext';
+import { CardBody, ConditionBody, SlicerBody } from './SpecialBodies';
+import { CHART_TYPES, DATA_TYPES_W, dsValid, needsX, useWidgetData } from './useWidgetData';
 
-export const PALETTE = ['#1552F0', '#16A34A', '#F59E0B', '#E5484D', '#8B5CF6', '#0EA5E9', '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16', '#64748B'];
-export const CHART_TYPES: WidgetType[] = ['bar', 'line', 'area', 'pie', 'doughnut', 'scatter'];
-export const DATA_TYPES_W: WidgetType[] = [...CHART_TYPES, 'kpi', 'table'];
-export const needsX = (t: WidgetType) => t !== 'kpi';
+export { CHART_TYPES, DATA_TYPES_W, dsValid, needsX, PALETTE, useWidgetData };
 
-export const WIDGETS: { type: WidgetType; label: string; icon: JSX.Element; w: number; h: number }[] = [
+export const WIDGET_GROUPS: { label: string; types: WidgetType[] }[] = [
+  { label: 'ตัวกรอง', types: ['slicer'] },
+  { label: 'กราฟ', types: ['bar', 'line', 'area', 'pie', 'doughnut', 'scatter', 'pct', 'pareto', 'histogram', 'heatmap', 'xchart', 'xbar'] },
+  { label: 'ตัวเลข', types: ['kpi', 'card', 'condition', 'table'] },
+  { label: 'ตกแต่ง', types: ['text', 'image', 'shape'] },
+];
+
+export const WIDGETS: { type: WidgetType; label: string; icon: JSX.Element; w: number; h: number; hint?: string }[] = [
+  { type: 'slicer', label: 'ตัวกรอง', icon: <Filter />, w: 260, h: 90, hint: 'Dropdown/ปุ่ม/ช่วงวันที่ ที่กรองกราฟอื่นในแดชบอร์ด' },
   { type: 'bar', label: 'แท่ง', icon: <BarChart3 />, w: 520, h: 340 },
   { type: 'line', label: 'เส้น', icon: <LineIcon />, w: 520, h: 340 },
   { type: 'area', label: 'พื้นที่', icon: <AreaIcon />, w: 520, h: 340 },
   { type: 'pie', label: 'วงกลม', icon: <PieIcon />, w: 380, h: 340 },
   { type: 'doughnut', label: 'โดนัท', icon: <Donut />, w: 380, h: 340 },
   { type: 'scatter', label: 'กระจาย', icon: <ScatterIcon />, w: 480, h: 340 },
+  { type: 'pct', label: 'แท่ง 100%', icon: <StretchHorizontal />, w: 520, h: 340, hint: 'สัดส่วน % ของแต่ละหมวด (Stacked 100%)' },
+  { type: 'pareto', label: 'Pareto', icon: <TrendingUp />, w: 560, h: 360, hint: 'แท่งเรียงมาก→น้อย + เส้น % สะสม' },
+  { type: 'histogram', label: 'Histogram', icon: <BarChartHorizontal />, w: 520, h: 340, hint: 'การกระจายของค่าตัวเลขเป็นช่วง' },
+  { type: 'heatmap', label: 'Heatmap', icon: <Grid3x3 />, w: 560, h: 360, hint: 'ตารางสีจากค่าตามหมวด × หมวด' },
+  { type: 'xchart', label: 'X Chart', icon: <Activity />, w: 560, h: 340, hint: 'Individuals control chart (CL / UCL / LCL)' },
+  { type: 'xbar', label: 'X-bar', icon: <Sigma />, w: 560, h: 340, hint: 'X-bar control chart ของกลุ่มย่อย' },
   { type: 'kpi', label: 'ตัวเลข KPI', icon: <Gauge />, w: 300, h: 150 },
+  { type: 'card', label: 'การ์ด', icon: <LayoutList />, w: 320, h: 170, hint: 'หัวข้อหลัก/หัวข้อย่อย/รายละเอียด เลือกแสดงได้' },
+  { type: 'condition', label: 'การ์ดเงื่อนไข', icon: <BellRing />, w: 340, h: 150, hint: 'เทียบค่าจาก 2 ตาราง ผ่าน/ไม่ผ่าน แสดงข้อความ' },
   { type: 'table', label: 'ตารางสรุป', icon: <Table2 />, w: 480, h: 320 },
   { type: 'text', label: 'ข้อความ', icon: <Type />, w: 420, h: 80 },
   { type: 'image', label: 'รูปภาพ', icon: <ImageIcon />, w: 360, h: 240 },
@@ -33,129 +47,33 @@ export const WIDGETS: { type: WidgetType; label: string; icon: JSX.Element; w: n
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 3) | 8).toString(16); }));
 
+const blankDs = (sheetId: string, extra: Partial<DataSource> = {}): DataSource => ({ sheetId, xColumnId: null, xBucket: 'none', series: [{ columnId: null, aggregation: 'count' }], limit: 20, ...extra });
+
 export function newWidget(type: WidgetType, x: number, y: number, z: number, sheetId: string | null): Widget {
   const def = WIDGETS.find((w) => w.type === type)!;
   const base: Widget = { id: uid(), type, title: def.label, x, y, w: def.w, h: def.h, z, locked: false, config: {}, style: { showTitle: true }, dataSource: null };
-  if (DATA_TYPES_W.includes(type) && sheetId)
-    base.dataSource = { sheetId, xColumnId: null, xBucket: 'none', series: [{ columnId: null, aggregation: 'count' }], sort: type === 'pie' || type === 'doughnut' ? 'value_desc' : 'x_asc', limit: 20 };
+  const withData = (DATA_TYPES_W.includes(type) || ['slicer', 'card', 'condition'].includes(type)) && sheetId;
+  if (withData) base.dataSource = blankDs(sheetId!, { sort: type === 'pie' || type === 'doughnut' || type === 'pareto' ? 'value_desc' : 'x_asc' });
   if (type === 'text') Object.assign(base, { title: '', config: { text: 'พิมพ์ข้อความ', fontSize: 24, fontWeight: 600, align: 'left', color: '' }, style: { showTitle: false, bg: 'transparent', borderWidth: 0, shadow: 'none', padding: 4 } });
   if (type === 'image') Object.assign(base, { title: '', config: { url: '', fit: 'cover' }, style: { showTitle: false, padding: 0 } });
   if (type === 'shape') Object.assign(base, { title: '', config: { shape: 'rect', fill: '#1552F0', stroke: 'transparent', strokeWidth: 0 }, style: { showTitle: false, bg: 'transparent', borderWidth: 0, shadow: 'none', padding: 0, radius: 16 } });
   if (type === 'kpi') base.config = { decimals: 0, color: '', prefix: '', suffix: '' };
   if (CHART_TYPES.includes(type)) base.config = { legend: true, grid: true, labels: false, colors: PALETTE.slice(0, 6) };
   if (type === 'scatter' && base.dataSource) base.dataSource.series = [{ columnId: null, aggregation: 'none' }];
-  return base;
-}
-
-/* ---------------- data ---------------- */
-const cache = new Map<string, { at: number; data: WidgetData }>();
-export function dsValid(type: WidgetType, ds: DataSource | null): ds is DataSource {
-  if (!ds?.sheetId || !ds.series?.length) return false;
-  if (needsX(type) && !ds.xColumnId) return false;
-  if (type === 'scatter' && !ds.series[0].columnId) return false;
-  return ds.series.every((s) => s.aggregation === 'count' || !!s.columnId);
-}
-export function useWidgetData(type: WidgetType, ds: DataSource | null, refreshKey: number) {
-  const [state, setState] = useState<{ data?: WidgetData; error?: string; loading: boolean }>({ loading: false });
-  const key = ds ? `${refreshKey}|${JSON.stringify(ds)}` : '';
-  useEffect(() => {
-    if (!dsValid(type, ds)) { setState({ loading: false }); return; }
-    const hit = cache.get(key);
-    if (hit && Date.now() - hit.at < 60_000) { setState({ data: hit.data, loading: false }); return; }
-    let live = true;
-    setState((s) => ({ ...s, loading: true, error: undefined }));
-    const t = setTimeout(() => {
-      dashboardsApi.data(ds).then((d) => { cache.set(key, { at: Date.now(), data: d }); if (live) setState({ data: d, loading: false }); })
-        .catch((e) => live && setState({ error: apiError(e).message, loading: false }));
-    }, 200);
-    return () => { live = false; clearTimeout(t); };
-  }, [key, type]); // eslint-disable-line react-hooks/exhaustive-deps
-  return state;
-}
-
-/* ---------------- rendering ---------------- */
-function ChartBody({ w, data }: { w: Widget; data: WidgetData }) {
-  const colors = useTheme((s) => s.draft.colors);
-  const cfg = w.config;
-  const pal: string[] = cfg.colors?.length ? cfg.colors : PALETTE;
-  const axis = { fill: colors.muted, fontSize: 11 };
-  const rows = data.categories.map((c, i) => ({ name: c, ...Object.fromEntries(data.series.map((s) => [s.key, s.values[i]])) }));
-  const tooltip = <Tooltip contentStyle={{ borderRadius: 12, border: `1px solid ${colors.border}`, background: colors.surface, color: colors.text, fontSize: 12 }} formatter={(v: any) => fmtNumber(Number(v), 2)} cursor={{ fill: `${colors.primary}10` }} />;
-  const legend = cfg.legend !== false && data.series.length > 0 ? <Legend wrapperStyle={{ fontSize: 12, color: colors.text }} iconType="circle" iconSize={8} /> : null;
-  const grid = cfg.grid !== false ? <CartesianGrid strokeDasharray="3 3" stroke={colors.border} vertical={false} /> : null;
-  const angle = Number(cfg.xAngle ?? 0);
-  const xAxis = <XAxis dataKey="name" tick={axis} stroke={colors.border} angle={angle} textAnchor={angle ? 'end' : 'middle'} height={angle ? 60 : 30} interval="preserveStartEnd" />;
-  const yAxis = <YAxis tick={axis} stroke={colors.border} tickFormatter={(v) => compactNumber(v)} width={48} />;
-
-  if (w.type === 'pie' || w.type === 'doughnut') {
-    const s = data.series[0];
-    const pd = data.categories.map((c, i) => ({ name: c, value: s?.values[i] ?? 0 })).filter((d) => d.value);
-    return (
-      <ResponsiveContainer>
-        <PieChart>
-          {tooltip}{legend}
-          <Pie data={pd} dataKey="value" nameKey="name" innerRadius={w.type === 'doughnut' ? '55%' : 0} outerRadius="80%" paddingAngle={w.type === 'doughnut' ? 2 : 0}
-            label={cfg.labels ? ({ percent }: any) => `${Math.round(percent * 100)}%` : false} labelLine={false} isAnimationActive stroke={colors.surface}>
-            {pd.map((_, i) => <Cell key={i} fill={pal[i % pal.length]} />)}
-          </Pie>
-        </PieChart>
-      </ResponsiveContainer>
-    );
+  if (type === 'histogram' && base.dataSource) { base.dataSource.kind = 'histogram'; base.dataSource.bins = 10; base.config = { ...base.config, legend: false, barGap: 1, barRadius: 0 }; }
+  if (type === 'xchart' && base.dataSource) { base.dataSource.kind = 'xchart'; base.config = { ...base.config, legend: false }; }
+  if (type === 'xbar' && base.dataSource) { base.dataSource.kind = 'xbar'; base.config = { ...base.config, legend: false }; }
+  if (type === 'pareto') base.config = { ...base.config, legend: true, labels: true };
+  if (type === 'heatmap') base.config = { colorLow: '#E8F0FE', colorHigh: '#1552F0', showValues: true };
+  if (type === 'slicer') { base.title = ''; base.style = { showTitle: false }; base.config = { mode: 'dropdown_search', multi: true, showLabel: true, placeholder: '', targets: [] }; }
+  if (type === 'card') { base.title = ''; base.style = { showTitle: false }; base.config = { heading: 'หัวข้อหลัก', subheading: 'หัวข้อย่อย', body: 'รายละเอียด', showHeading: true, showSubheading: true, showBody: true, showValue: false, align: 'left', decimals: 0 }; }
+  if (type === 'condition') {
+    base.config = { op: 'lte', passMessage: 'ผ่านเงื่อนไข ✓', failMessage: 'ไม่ผ่านเงื่อนไข', labelA: 'ค่าที่ 1', labelB: 'ค่าที่ 2', decimals: 0, showValues: true, showIcon: true, tint: true,
+      b: sheetId ? blankDs(sheetId) : null };
+    if (base.dataSource) base.dataSource.series = [{ columnId: null, aggregation: 'sum' }];
+    if (base.config.b) base.config.b.series = [{ columnId: null, aggregation: 'sum' }];
   }
-  if (w.type === 'scatter')
-    return (
-      <ResponsiveContainer>
-        <ScatterChart>
-          {grid}{tooltip}
-          <XAxis dataKey="x" type="number" tick={axis} stroke={colors.border} name="X" />
-          <YAxis dataKey="y" type="number" tick={axis} stroke={colors.border} width={48} name="Y" />
-          <Scatter data={data.points as any[]} fill={pal[0]} />
-        </ScatterChart>
-      </ResponsiveContainer>
-    );
-  if (w.type === 'line')
-    return (
-      <ResponsiveContainer>
-        <LineChart data={rows}>
-          {grid}{xAxis}{yAxis}{tooltip}{legend}
-          {data.series.map((s, i) => (
-            <Line key={s.key} dataKey={s.key} name={s.name} type={cfg.curve ?? 'monotone'} stroke={pal[i % pal.length]} strokeWidth={2.5} dot={rows.length <= 31 ? { r: 3 } : false} connectNulls>
-              {cfg.labels && <LabelList dataKey={s.key} position="top" fontSize={10} fill={colors.muted} formatter={(v: any) => compactNumber(v)} />}
-            </Line>
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-    );
-  if (w.type === 'area')
-    return (
-      <ResponsiveContainer>
-        <AreaChart data={rows}>
-          <defs>{data.series.map((s, i) => (
-            <linearGradient key={s.key} id={`g-${w.id}-${i}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={pal[i % pal.length]} stopOpacity={0.35} /><stop offset="100%" stopColor={pal[i % pal.length]} stopOpacity={0.02} />
-            </linearGradient>))}</defs>
-          {grid}{xAxis}{yAxis}{tooltip}{legend}
-          {data.series.map((s, i) => (
-            <Area key={s.key} dataKey={s.key} name={s.name} type={cfg.curve ?? 'monotone'} stroke={pal[i % pal.length]} strokeWidth={2.5} fill={`url(#g-${w.id}-${i})`} stackId={cfg.stacked ? 'a' : undefined} connectNulls />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
-    );
-  const horizontal = !!cfg.horizontal;
-  return (
-    <ResponsiveContainer>
-      <BarChart data={rows} layout={horizontal ? 'vertical' : 'horizontal'} barCategoryGap="22%">
-        {cfg.grid !== false && <CartesianGrid strokeDasharray="3 3" stroke={colors.border} vertical={horizontal} horizontal={!horizontal} />}
-        {horizontal ? <><XAxis type="number" tick={axis} stroke={colors.border} tickFormatter={(v) => compactNumber(v)} /><YAxis type="category" dataKey="name" tick={axis} stroke={colors.border} width={96} /></> : <>{xAxis}{yAxis}</>}
-        {tooltip}{legend}
-        {data.series.map((s, i) => (
-          <Bar key={s.key} dataKey={s.key} name={s.name} fill={pal[i % pal.length]} stackId={cfg.stacked ? 'a' : undefined} radius={cfg.stacked ? 0 : horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0]} maxBarSize={56}>
-            {cfg.labels && <LabelList dataKey={s.key} position={horizontal ? 'right' : 'top'} fontSize={10} fill={colors.muted} formatter={(v: any) => compactNumber(v)} />}
-          </Bar>
-        ))}
-      </BarChart>
-    </ResponsiveContainer>
-  );
+  return base;
 }
 
 function KpiBody({ w, data }: { w: Widget; data: WidgetData }) {
@@ -198,16 +116,18 @@ function TableBody({ w, data }: { w: Widget; data: WidgetData }) {
 
 export function WidgetView({ w, refreshKey, editing }: { w: Widget; refreshKey: number; editing?: boolean }) {
   const isData = DATA_TYPES_W.includes(w.type);
-  const { data, error, loading } = useWidgetData(w.type, isData ? w.dataSource : null, refreshKey);
+  const ctx = useDash();
+  const { data, error, loading } = useWidgetData(w.type, isData ? withSlicers(ctx, w.id, w.dataSource) : null, refreshKey);
   const s = w.style ?? {};
   const cfg = w.config ?? {};
   useEffect(() => { if (w.type === 'text' && cfg.fontFamily) ensureFont(cfg.fontFamily); }, [w.type, cfg.fontFamily]);
+  if (s.hidden && !editing) return null;
 
   const frame: React.CSSProperties = {
     background: s.bg ?? 'var(--widget-bg)', color: s.text || 'var(--widget-text)',
     border: `${s.borderWidth ?? 'var(--widget-bw)'}${s.borderWidth !== undefined ? 'px' : ''} solid ${s.border ?? 'var(--widget-border)'}`,
     borderRadius: s.radius !== undefined ? s.radius : 'var(--widget-radius)', boxShadow: s.shadow ? SHADOWS[s.shadow] : 'var(--widget-shadow)',
-    padding: s.padding !== undefined ? s.padding : 'var(--widget-pad)', opacity: s.opacity ?? 1,
+    padding: s.padding !== undefined ? s.padding : 'var(--widget-pad)', opacity: s.hidden ? 0.35 : s.opacity ?? 1,
   };
 
   let body: React.ReactNode = null;
@@ -218,7 +138,10 @@ export function WidgetView({ w, refreshKey, editing }: { w: Widget; refreshKey: 
     else if (w.type === 'kpi') body = <KpiBody w={w} data={data} />;
     else if (w.type === 'table') body = <TableBody w={w} data={data} />;
     else body = <ChartBody w={w} data={data} />;
-  } else if (w.type === 'text') {
+  } else if (w.type === 'slicer') body = <SlicerBody w={w} editing={editing} />;
+  else if (w.type === 'card') body = <CardBody w={w} refreshKey={refreshKey} />;
+  else if (w.type === 'condition') body = <ConditionBody w={w} refreshKey={refreshKey} editing={editing} />;
+  else if (w.type === 'text') {
     body = (
       <div className="flex h-full w-full overflow-hidden whitespace-pre-wrap break-words" style={{
         fontSize: cfg.fontSize ?? 18, fontWeight: cfg.fontWeight ?? 400, textAlign: cfg.align ?? 'left', color: cfg.color || undefined,
@@ -236,13 +159,16 @@ export function WidgetView({ w, refreshKey, editing }: { w: Widget; refreshKey: 
       : <div className="h-full w-full" style={{ background: cfg.fill, border: `${cfg.strokeWidth ?? 0}px solid ${cfg.stroke ?? 'transparent'}`, borderRadius: sh === 'ellipse' ? '50%' : s.radius ?? 16 }} />;
   }
 
-  const showTitle = s.showTitle !== false && !!w.title && !['text', 'shape', 'image'].includes(w.type);
+  const showTitle = s.showTitle !== false && !!w.title && !['text', 'shape', 'image', 'slicer', 'card'].includes(w.type);
   return (
     <div className="flex h-full w-full flex-col overflow-hidden" style={w.type === 'shape' ? { opacity: s.opacity ?? 1 } : frame}>
       {showTitle && (
-        <div className="mb-2 flex shrink-0 items-center gap-2">
-          <p className="min-w-0 flex-1 truncate font-semibold" style={{ fontSize: s.titleSize ?? 15 }}>{w.title}</p>
-          {loading && data && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />}
+        <div className="mb-2 shrink-0" style={{ textAlign: s.titleAlign ?? 'left' }}>
+          <div className="flex items-center gap-2" style={{ justifyContent: s.titleAlign === 'center' ? 'center' : s.titleAlign === 'right' ? 'flex-end' : 'flex-start' }}>
+            <p className="min-w-0 truncate font-semibold" style={{ fontSize: s.titleSize ?? 15 }}>{w.title}</p>
+            {loading && data && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />}
+          </div>
+          {s.subtitle && <p className="truncate text-xs opacity-60">{s.subtitle}</p>}
         </div>
       )}
       <div className="relative min-h-0 flex-1">{body}</div>
