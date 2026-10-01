@@ -5,6 +5,7 @@ import { fmtDate, fmtDateTime, fmtNumber, fromLocalInput, optionLabel, toLocalIn
 import { useLookupOptions } from '@/lib/lookup';
 import type { CellValue, Column, SelectOption } from '@/types';
 import { Popover } from '../ui/Popover';
+import { DocNumberCellEditor } from './DocNumberCell';
 import { ImageCellEditor, ImageThumbs, toUrls } from './ImageCell';
 
 export function Chip({ label, color, size = 'md' }: { label: string; color?: string | null; size?: 'sm' | 'md' }) {
@@ -81,6 +82,7 @@ export function CellEditor({ col, value, initial, anchor, onCommit, onCancel, ro
     else if (e.key === 'Tab') { e.preventDefault(); text === rawText(col, value) ? cancel() : finish(conv(text), e.shiftKey ? 'left' : 'right'); }
   };
 
+  if (col.dataType === 'doc_number') return <DocNumberCellEditor col={col} value={value} anchor={anchor} rowValues={rowValues ?? {}} onCommit={finish} onCancel={cancel} />;
   if (col.dataType === 'image') return <ImageCellEditor col={col} value={value} anchor={anchor} onCommit={finish} onCancel={cancel} />;
   if (col.dataType === 'select' || col.dataType === 'multi_select') return <LookupAwareOptionEditor col={col} value={value} anchor={anchor} rowValues={rowValues ?? {}} onCommit={finish} onCancel={cancel} />;
 

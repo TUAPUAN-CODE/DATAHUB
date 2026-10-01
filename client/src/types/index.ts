@@ -23,7 +23,7 @@ export interface FileItem {
   level: number; permission: Perm; favorite: boolean; viewedAt?: string;
 }
 
-export type DataType = 'varchar' | 'text' | 'int' | 'float' | 'date' | 'datetime' | 'boolean' | 'select' | 'multi_select' | 'url' | 'email' | 'image';
+export type DataType = 'varchar' | 'text' | 'int' | 'float' | 'date' | 'datetime' | 'boolean' | 'select' | 'multi_select' | 'url' | 'email' | 'image' | 'doc_number';
 export interface SelectOption { value: string; label: string; color?: string | null }
 export interface Validation {
   min?: number | null; max?: number | null; decimals?: number | null; maxLength?: number | null; pattern?: string | null;
@@ -32,7 +32,10 @@ export interface Validation {
   allowEmpty?: boolean | null;
   /** options come from a column of another sheet; `parent` limits them to rows matching a value in this row */
   lookup?: Lookup | null;
+  /** auto-numbered document id, e.g. {PREFIX}-{YYMMDD}-{SEQ:3} */
+  docNumber?: DocNumberCfg | null;
 }
+export interface DocNumberCfg { template: string; prefixes?: string[] | null; prefixLookup?: Lookup | null; dateColumnId?: string | null }
 export interface Lookup { sheetId: string; columnId: string; parent?: { localColumnId: string; foreignColumnId: string } | null }
 export type CellValue = string | number | boolean | string[] | null;
 

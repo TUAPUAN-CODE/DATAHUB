@@ -14,6 +14,7 @@ export const DATA_TYPES = [
   'url',
   'email',
   'image',
+  'doc_number',
 ] as const;
 export type DataType = (typeof DATA_TYPES)[number];
 
@@ -37,6 +38,8 @@ export interface Validation {
   allowEmpty?: boolean | null;
   /** Options come from a column of another sheet (relationship) instead of a fixed list */
   lookup?: { sheetId: string; columnId: string; parent?: { localColumnId: string; foreignColumnId: string } | null } | null;
+  /** auto-numbered document id (type doc_number) */
+  docNumber?: { template: string; prefixes?: string[] | null; prefixLookup?: { sheetId: string; columnId: string } | null; dateColumnId?: string | null } | null;
 }
 
 export interface ColumnDef {
@@ -187,6 +190,7 @@ export function normalizeValue(col: ColumnDef, raw: unknown, opts: { skipRequire
   switch (col.data_type) {
     case 'varchar':
     case 'text':
+    case 'doc_number':
     case 'url':
     case 'email': {
       let s = Array.isArray(raw) ? raw.join(', ') : String(raw);

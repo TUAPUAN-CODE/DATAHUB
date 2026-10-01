@@ -20,6 +20,14 @@ export const validationSchema = z
     maxDate: z.string().max(30).nullish(),
     maxSelections: z.number().int().min(1).max(500).nullish(),
     allowEmpty: z.boolean().nullish(),
+    docNumber: z
+      .object({
+        template: z.string().trim().min(1).max(100),
+        prefixes: z.array(z.string().trim().min(1).max(50)).max(200).nullish(),
+        prefixLookup: z.object({ sheetId: zId, columnId: zId }).nullish(),
+        dateColumnId: zId.nullish(),
+      })
+      .nullish(),
     lookup: z
       .object({
         sheetId: zId,
@@ -88,6 +96,7 @@ export const sortSchema = z.object({
 export function checkColumnInput(input: ColumnInput) {
   const isSelect = input.dataType === 'select' || input.dataType === 'multi_select';
   const hasLookup = isSelect && !!input.validation?.lookup;
+  if (input.dataType === 'doc_number' && !input.validation?.docNumber?.template) throw badRequest(`คอลัมน์ "${input.name}": กรุณากำหนดรูปแบบเลขที่`);
   let options: SelectOption[] = [];
   if (isSelect && !hasLookup) {
     options = (input.options ?? []).map((o) => ({ value: o.value, label: o.label, color: o.color ?? null }));
@@ -110,7 +119,7 @@ export function checkColumnInput(input: ColumnInput) {
     throw badRequest(`ค่าต่ำสุดต้องไม่มากกว่าค่าสูงสุด ในคอลัมน์ "${input.name}"`);
 
   let defaultValue: unknown = null;
-  if (!hasLookup && input.defaultValue !== undefined && input.defaultValue !== null && input.defaultValue !== '') {
+  if (!hasLookup && input.dataType !== 'doc_number' && input.defaultValue !== undefined && input.defaultValue !== null && input.defaultValue !== '') {
     const def: ColumnDef = {
       column_id: '',
       column_name: input.name,

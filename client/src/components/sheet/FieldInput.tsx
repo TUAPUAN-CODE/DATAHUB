@@ -5,6 +5,7 @@ import type { CellValue, Column } from '@/types';
 import { TextArea, TextInput, Toggle } from '../ui/Inputs';
 import { SearchSelect } from '../ui/SearchSelect';
 import { useLookupOptions } from '@/lib/lookup';
+import { DocNumberField } from './DocNumberField';
 import { ImagePicker, toUrls } from './ImageCell';
 
 type Col = Pick<Column, 'dataType' | 'options' | 'placeholder' | 'validation' | 'name'> & Partial<Pick<Column, 'id' | 'sheetId' | 'isRequired'>>;
@@ -37,6 +38,8 @@ export function FieldInput({ col, value, onChange, invalid, autoFocus, rowValues
           options={[...(showEmpty ? [{ value: '', label: '— ไม่ระบุ —' }] : []), ...options.map((o) => ({ value: o.value, label: o.label, color: o.color }))]}
           renderValue={emptyHint && !value ? () => <span className="text-muted">{emptyHint}</span> : undefined} />
       );
+    case 'doc_number':
+      return <DocNumberField col={col} value={value} onChange={onChange} rowValues={rowValues} invalid={invalid} />;
     case 'image':
       return <ImagePicker urls={toUrls(value)} onChange={(u) => onChange(u.length ? u : null)} max={col.validation?.maxSelections ?? 200} columns={4} />;
     case 'multi_select': {

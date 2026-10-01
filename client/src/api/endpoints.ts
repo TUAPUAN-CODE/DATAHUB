@@ -79,6 +79,8 @@ export const rowsApi = {
   remove: (rowId: string) => del(`/rows/${rowId}`),
   lookupOptions: (sheetId: string, b: { columnId: string; parentValue?: string | null; search?: string }) =>
     post<{ options: string[]; needsParent: boolean }>(`/sheets/${sheetId}/lookup-options`, b),
+  docPreview: (sheetId: string, b: { columnId: string; prefix?: string | null; date?: string | null }) =>
+    post<{ number: string | null }>(`/sheets/${sheetId}/doc-number/preview`, b),
   importRows: (sheetId: string, b: { rows: { rowNo: number; values: Record<string, unknown> }[]; skipInvalid?: boolean; dryRun?: boolean }) =>
     post<ImportResult>(`/sheets/${sheetId}/rows/import`, b),
   removeMany: (sheetId: string, rowIds: string[]) => post(`/sheets/${sheetId}/rows/delete`, { rowIds }),

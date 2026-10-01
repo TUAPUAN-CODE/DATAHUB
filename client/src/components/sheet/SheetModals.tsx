@@ -43,7 +43,7 @@ export function RowFormModal({ open, onClose, columns, row, users, canWrite, onC
   const empty = (v: CellValue) => v === null || v === '' || (Array.isArray(v) && !v.length);
   const submit = async () => {
     const errs: Record<string, string> = {};
-    columns.forEach((c) => { if (c.isRequired && empty(values[c.id] ?? null)) errs[c.id] = 'จำเป็นต้องกรอก'; });
+    columns.forEach((c) => { if (c.isRequired && c.dataType !== 'doc_number' && empty(values[c.id] ?? null)) errs[c.id] = 'จำเป็นต้องกรอก'; });
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setBusy(true);

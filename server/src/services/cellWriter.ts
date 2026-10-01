@@ -15,6 +15,7 @@ import {
 import { badRequest, reqMeta } from '../shared/http';
 import { LV, requireSheet } from '../shared/permissions';
 import { getLookup, lookupResolver, normalizeWithLookup } from './lookup';
+import { docPrefixes, getDocCfg, interpretDocRaw, nextDocNumbers, dateParts, DocNumberCfg } from './docNumber';
 import { emitToSheet } from '../socket';
 
 export async function loadColumns(sheetId: string, tx?: Tx | null, includeDeleted = false) {
@@ -186,7 +187,8 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
   }
 
   const errors: CellError[] = [];
-  const valid: { rowId: string; col: ColumnDef; rowNo: number; value: CellValue }[] = [];
+  const valid: { rowId: string; col: ColumnDef; rowNo: number; value: CellValue; gen?: { cfg: DocNumberCfg; prefix: string | null } }[] = [];
+  const prefixCache = new Map<string, string[]>();
   const seen = new Set<string>();
   for (const u of updates) {
     const rowId = u.rowId.toLowerCase();
@@ -201,10 +203,20 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
       errors.push({ rowId, columnId, columnName: col.column_name, message: 'ไม่พบแถว (อาจถูกลบแล้ว)' });
       continue;
     }
+    let rawValue = u.value;
+    let gen: { cfg: DocNumberCfg; prefix: string | null } | undefined;
+    const dc = getDocCfg(col);
+    if (dc) {
+      if (!prefixCache.has(col.column_id)) prefixCache.set(col.column_id, await docPrefixes(dc));
+      const dr = interpretDocRaw(col, dc, u.value, prefixCache.get(col.column_id)!, 'update');
+      if (!dr.ok) { errors.push({ rowId, columnId, rowNo: row.row_order, columnName: col.column_name, message: dr.error }); continue; }
+      if (dr.kind === 'generate') gen = { cfg: dc, prefix: dr.prefix };
+      else rawValue = dr.value;
+    }
     const parentVals = { ...(stored.get(rowId) ?? {}), ...(batchValues.get(rowId) ?? {}) };
     const pl = getLookup(col)?.parent;
     const pv = pl ? parentVals[pl.localColumnId] : null;
-    const n = await normalizeWithLookup(col, u.value, pv === null || pv === undefined || pv === '' ? null : String(Array.isArray(pv) ? pv[0] : pv), resolve, { skipRequired: opts.skipRequired });
+    const n = gen ? ({ ok: true, value: null } as const) : await normalizeWithLookup(col, rawValue, pv === null || pv === undefined || pv === '' ? null : String(Array.isArray(pv) ? pv[0] : pv), resolve, { skipRequired: opts.skipRequired });
     if (!n.ok) {
       errors.push({ rowId, columnId, rowNo: row.row_order, columnName: col.column_name, message: n.error });
       continue;
@@ -215,7 +227,7 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
       if (idx >= 0) valid.splice(idx, 1);
     }
     seen.add(key);
-    valid.push({ rowId, col, rowNo: row.row_order, value: n.value });
+    valid.push({ rowId, col, rowNo: row.row_order, value: n.value, gen });
   }
   if (errors.length && !opts.partial) {
     throw badRequest(errors.length === 1 ? errors[0].message : `ข้อมูลไม่ถูกต้อง ${errors.length} เซลล์: ${errors[0].message}`, {
@@ -236,7 +248,9 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
       at: Date | null;
     }[] = [];
     for (const v of valid) {
-      const r = await writeCell(tx, { sheetId, rowId: v.rowId, col: v.col, value: v.value, userId: user.id, source });
+      let value = v.value;
+      if (v.gen) [value] = await nextDocNumbers(tx, sheetId, v.col, v.gen.cfg, [{ prefix: v.gen.prefix, date: dateParts(null) }]);
+      const r = await writeCell(tx, { sheetId, rowId: v.rowId, col: v.col, value, userId: user.id, source });
       if (r.changed)
         out.push({
           rowId: v.rowId,

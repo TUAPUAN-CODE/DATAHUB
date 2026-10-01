@@ -42,6 +42,7 @@ The UI is in Thai. This README is in English and uses Thai terms where helpful.
 | Login | **Google / Microsoft sign-in** (see `server/.env.example`). |
 | Roles | `viewer` (read only), `user` (enters data in tables; cannot change columns or structure), `master`, `admin`. |
 | Tables | **Import from Excel / CSV** (column mapping, validation report, template download), **relationships** (a select column takes its options from a column of another sheet, optionally filtered by another column in the same row, e.g. Plant → Line), and an option to hide the “— ไม่ระบุ —” choice. |
+| Tables | **Auto document numbers** (column type “เลขที่เอกสารอัตโนมัติ”): free-form template such as `{PREFIX}-{YYMMDD}-{SEQ:3}` → `CSM-260926-009`; prefixes (CSM/CSN/CSR) come from a fixed list or from a column of another sheet; the running number restarts when the date or prefix changes. |
 | Sidebar | **Dashboards** page listing every dashboard you can open; row delete button (hover the row number, or select rows and use the toolbar). |
 
 > Existing databases: start the API once (or run `npm run db:init`) – `database/02_share_links_oauth.sql` is applied automatically and is safe to re-run.

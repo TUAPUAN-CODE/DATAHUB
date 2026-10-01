@@ -12,8 +12,8 @@ const OK_SOURCE = (c: Column) => c.dataType !== 'multi_select' && c.dataType !==
  * Optionally the list is narrowed to the rows whose "linking column" equals the value of a column in THIS row
  * (e.g. Plant → Line: only the lines that exist for the selected plant).
  */
-export function LookupEditor({ lookup, onChange, siblings, selfKey, fileId, fileName }: {
-  lookup: Lookup; onChange: (l: Lookup) => void; siblings: ColumnDraft[]; selfKey: string; fileId?: string; fileName?: string;
+export function LookupEditor({ lookup, onChange, siblings, selfKey, fileId, fileName, hideParent, title }: {
+  lookup: Lookup; onChange: (l: Lookup) => void; siblings: ColumnDraft[]; selfKey: string; fileId?: string; fileName?: string; hideParent?: boolean; title?: string;
 }) {
   const [srcFile, setSrcFile] = useState<string | null>(fileId ?? null);
   const [sheets, setSheets] = useState<Sheet[]>([]);
@@ -49,7 +49,7 @@ export function LookupEditor({ lookup, onChange, siblings, selfKey, fileId, file
   const hasParent = !!lookup.parent;
   return (
     <div className="space-y-3 rounded-xl border border-primary/25 bg-primary/[.03] p-3 md:col-span-2">
-      <p className="text-[13px] font-semibold text-primary">เชื่อมโยงกับตารางอื่น (Relationship)</p>
+      <p className="text-[13px] font-semibold text-primary">{title ?? 'เชื่อมโยงกับตารางอื่น (Relationship)'}</p>
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="ไฟล์ต้นทาง">
           <SearchSelect value={srcFile} placeholder={fileName ?? 'เลือกไฟล์'} onChange={(v) => { setSrcFile(v); onChange({ sheetId: '', columnId: '', parent: null }); }}
@@ -66,11 +66,11 @@ export function LookupEditor({ lookup, onChange, siblings, selfKey, fileId, file
           </Select>
         </Field>
       </div>
-      <Toggle checked={hasParent} disabled={!lookup.sheetId || !parentCandidates.length}
+      {!hideParent && <Toggle checked={hasParent} disabled={!lookup.sheetId || !parentCandidates.length}
         onChange={(v) => onChange({ ...lookup, parent: v ? { localColumnId: parentCandidates[0]?.id ?? '', foreignColumnId: cols[0]?.id ?? '' } : null })}
-        label="แสดงเฉพาะค่าที่ตรงกับคอลัมน์อื่นในแถวนี้ (ตัวเลือกขึ้นต่อกัน)" />
-      {!parentCandidates.length && <p className="text-xs text-muted">ตัวเลือกแบบขึ้นต่อกันใช้ได้เมื่อตารางนี้มีคอลัมน์อื่นที่บันทึกแล้ว (กรณีสร้างไฟล์ใหม่ ให้บันทึกก่อนแล้วกลับมาตั้งค่านี้)</p>}
-      {hasParent && lookup.parent && (
+        label="แสดงเฉพาะค่าที่ตรงกับคอลัมน์อื่นในแถวนี้ (ตัวเลือกขึ้นต่อกัน)" />}
+      {!hideParent && !parentCandidates.length && <p className="text-xs text-muted">ตัวเลือกแบบขึ้นต่อกันใช้ได้เมื่อตารางนี้มีคอลัมน์อื่นที่บันทึกแล้ว (กรณีสร้างไฟล์ใหม่ ให้บันทึกก่อนแล้วกลับมาตั้งค่านี้)</p>}
+      {!hideParent && hasParent && lookup.parent && (
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="คอลัมน์ในตารางนี้ (ผู้ใช้เลือกก่อน)" hint="เช่น Plant">
             <Select value={lookup.parent.localColumnId} onChange={(e) => onChange({ ...lookup, parent: { ...lookup.parent!, localColumnId: e.target.value } })}>

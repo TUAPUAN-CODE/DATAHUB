@@ -10,6 +10,7 @@ import { filterSchema, sortSchema } from '../shared/schemas';
 import { loadColumns, writeCell } from '../services/cellWriter';
 import { applyRollback, planRollback } from '../services/rollback';
 import { distinctValues, hydrateRows, queryRows, userNames } from '../services/rowQuery';
+import { dateParts, docDate, docPrefixes, hasPrefixToken, DocNumberCfg, getDocCfg, interpretDocRaw, nextDocNumbers } from '../services/docNumber';
 import { lookupResolver, lookupValues, getLookup, normalizeWithLookup, parentValueOf } from '../services/lookup';
 import { emitToSheet } from '../socket';
 
@@ -67,9 +68,17 @@ router.post(
     const toWrite: { col: ReturnType<typeof toColumnDef>; value: CellValue }[] = [];
     const resolve = lookupResolver();
     const rawAll: Record<string, unknown> = Object.fromEntries(cols.map((c) => [c.column_id, c.column_id in lowered ? lowered[c.column_id] : safeJson(c.default_value, null)]));
+    const docGen: { def: ReturnType<typeof toColumnDef>; cfg: DocNumberCfg; prefix: string | null; date: ReturnType<typeof docDate> }[] = [];
     for (const c of cols) {
       const def = toColumnDef(c);
-      const raw = rawAll[c.column_id];
+      let raw = rawAll[c.column_id];
+      const dc = getDocCfg(def);
+      if (dc) {
+        const r = interpretDocRaw(def, dc, raw, await docPrefixes(dc), 'create');
+        if (!r.ok) { fieldErrors[c.column_id] = r.error; continue; }
+        if (r.kind === 'generate') { docGen.push({ def, cfg: dc, prefix: r.prefix, date: docDate(dc, rawAll) }); continue; }
+        raw = r.value;
+      }
       const n = await normalizeWithLookup(def, raw, await parentValueOf(def, rawAll), resolve);
       if (!n.ok) fieldErrors[c.column_id] = n.error;
       else if (n.value !== null) toWrite.push({ col: def, value: n.value });
@@ -84,6 +93,10 @@ router.post(
         { s: T.uuid(sheetId), o: T.int(o!.o), u: T.uuid(u.id) },
         tx,
       );
+      for (const g of docGen) {
+        const [num] = await nextDocNumbers(tx, sheetId, g.def, g.cfg, [{ prefix: g.prefix, date: g.date }]);
+        toWrite.push({ col: g.def, value: num });
+      }
       for (const w of toWrite) await writeCell(tx, { sheetId, rowId: r!.row_id, col: w.col, value: w.value, userId: u.id, source: 'create' });
       await audit({ userId: u.id, action: 'row_create', entityType: 'row', entityId: r!.row_id, fileId: sheet.file_id, sheetId,
         newValue: { rowNo: o!.o, values: Object.fromEntries(toWrite.map((w) => [w.col.column_name, w.value])) } }, req, tx);
@@ -105,10 +118,32 @@ router.post(
     const body = parse(z.object({ columnId: zId, parentValue: z.string().max(500).nullish(), search: z.string().max(200).optional() }), req.body);
     const cols = await loadColumns(sheetId);
     const col = cols.find((c) => c.column_id === body.columnId);
-    const l = col ? getLookup(toColumnDef(col)) : null;
+    const def = col ? toColumnDef(col) : null;
+    const dc = def ? getDocCfg(def) : null;
+    if (dc) return ok(res, { options: await docPrefixes(dc), needsParent: false });
+    const l = def ? getLookup(def) : null;
     if (!l) throw badRequest('คอลัมน์นี้ไม่ได้ดึงตัวเลือกจากตารางอื่น');
     // The list is read with the server's rights on purpose: writers may pick a value without having read access to the source sheet
     ok(res, { options: await lookupValues(l, body.parentValue ?? null, body.search), needsParent: !!l.parent });
+  }),
+);
+
+/** The number a new row would get right now (shown in the form; the final number is assigned when the row is saved) */
+router.post(
+  '/sheets/:id/doc-number/preview',
+  ah(async (req, res) => {
+    const sheetId = pid(req);
+    await requireSheet(req.user!, sheetId, LV.read);
+    const body = parse(z.object({ columnId: zId, prefix: z.string().max(100).nullish(), date: z.string().max(10).nullish() }), req.body);
+    const col = (await loadColumns(sheetId)).find((c) => c.column_id === body.columnId);
+    const def = col ? toColumnDef(col) : null;
+    const dc = def ? getDocCfg(def) : null;
+    if (!def || !dc) throw badRequest('คอลัมน์นี้ไม่ใช่เลขที่เอกสารอัตโนมัติ');
+    const prefixes = await docPrefixes(dc);
+    const prefix = body.prefix ? prefixes.find((p) => p.toLowerCase() === body.prefix!.toLowerCase()) ?? null : null;
+    if (hasPrefixToken(dc.template) && !prefix) return ok(res, { number: null });
+    const [number] = await withTx((tx) => nextDocNumbers(tx, sheetId, def, dc, [{ prefix, date: dateParts(body.date ?? null) }]));
+    ok(res, { number });
   }),
 );
 
@@ -131,20 +166,32 @@ router.post(
     const defs = cols.map((c) => ({ c, def: toColumnDef(c) }));
     const resolve = lookupResolver();
     const errors: { rowNo: number; columnId: string; columnName: string; message: string }[] = [];
-    const valid: { rowNo: number; cells: { def: ReturnType<typeof toColumnDef>; value: CellValue }[] }[] = [];
+    type Gen = { def: ReturnType<typeof toColumnDef>; cfg: DocNumberCfg; prefix: string | null; date: ReturnType<typeof docDate> };
+    const valid: { rowNo: number; cells: { def: ReturnType<typeof toColumnDef>; value: CellValue }[]; gens: Gen[] }[] = [];
+    const prefixCache = new Map<string, string[]>();
     let skippedEmpty = 0;
     for (const r of body.rows) {
       const lowered = Object.fromEntries(Object.entries(r.values).map(([k, v]) => [k.toLowerCase(), v]));
       if (!Object.values(lowered).some((v) => !(v === null || v === undefined || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && !v.length)))) { skippedEmpty++; continue; }
       const rawAll: Record<string, unknown> = Object.fromEntries(defs.map(({ c }) => [c.column_id, c.column_id in lowered ? lowered[c.column_id] : safeJson(c.default_value, null)]));
       const cells: { def: ReturnType<typeof toColumnDef>; value: CellValue }[] = [];
+      const gens: Gen[] = [];
       let bad = false;
       for (const { def } of defs) {
-        const n = await normalizeWithLookup(def, rawAll[def.column_id], await parentValueOf(def, rawAll), resolve);
+        let raw = rawAll[def.column_id];
+        const dc = getDocCfg(def);
+        if (dc) {
+          if (!prefixCache.has(def.column_id)) prefixCache.set(def.column_id, await docPrefixes(dc));
+          const dr = interpretDocRaw(def, dc, raw, prefixCache.get(def.column_id)!, 'create');
+          if (!dr.ok) { bad = true; errors.push({ rowNo: r.rowNo, columnId: def.column_id, columnName: def.column_name, message: dr.error }); continue; }
+          if (dr.kind === 'generate') { gens.push({ def, cfg: dc, prefix: dr.prefix, date: docDate(dc, rawAll) }); continue; }
+          raw = dr.value;
+        }
+        const n = await normalizeWithLookup(def, raw, await parentValueOf(def, rawAll), resolve);
         if (!n.ok) { bad = true; errors.push({ rowNo: r.rowNo, columnId: def.column_id, columnName: def.column_name, message: n.error }); }
         else if (n.value !== null) cells.push({ def, value: n.value });
       }
-      if (!bad) valid.push({ rowNo: r.rowNo, cells });
+      if (!bad) valid.push({ rowNo: r.rowNo, cells, gens });
     }
     const failedRows = new Set(errors.map((e) => e.rowNo)).size;
     if (body.dryRun || (errors.length && !body.skipInvalid) || !valid.length)
@@ -153,6 +200,16 @@ router.post(
     await withTx(async (tx) => {
       const o = await q1(`SELECT ISNULL(MAX(row_order), 0) AS o FROM Rows WITH (UPDLOCK, HOLDLOCK) WHERE sheet_id = @s`, { s: T.uuid(sheetId) }, tx);
       const start = Number(o?.o ?? 0);
+      // auto document numbers, in file order, per column
+      const byCol = new Map<string, { def: Gen['def']; cfg: DocNumberCfg; items: { v: (typeof valid)[number]; g: Gen }[] }>();
+      for (const v of valid) for (const g of v.gens) {
+        if (!byCol.has(g.def.column_id)) byCol.set(g.def.column_id, { def: g.def, cfg: g.cfg, items: [] });
+        byCol.get(g.def.column_id)!.items.push({ v, g });
+      }
+      for (const grp of byCol.values()) {
+        const nums = await nextDocNumbers(tx, sheetId, grp.def, grp.cfg, grp.items.map((i) => ({ prefix: i.g.prefix, date: i.g.date })));
+        grp.items.forEach((i, k) => i.v.cells.push({ def: grp.def, value: nums[k] }));
+      }
       const rowsJson: { row_id: string; ord: number }[] = [];
       const cellsJson: Record<string, unknown>[] = [];
       const histJson: Record<string, unknown>[] = [];

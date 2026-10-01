@@ -8,6 +8,7 @@ import type { ColumnDraft, DataType, SelectOption } from '@/types';
 import { Checkbox, Field, Select, TextInput } from '../ui/Inputs';
 import { FieldInput } from '../sheet/FieldInput';
 import { LookupEditor } from './LookupEditor';
+import { DOC_TOKENS, hasPrefixToken, renderDocPreview } from '@/lib/docNumber';
 import { Segmented, Toggle } from '../ui/Inputs';
 
 function OptionsEditor({ options, onChange }: { options: SelectOption[]; onChange: (o: SelectOption[]) => void }) {
@@ -42,6 +43,49 @@ function OptionsEditor({ options, onChange }: { options: SelectOption[]; onChang
 
 const num = (s: string) => (s.trim() === '' ? null : Number(s));
 
+/** Auto-numbered document id: free-form template + where the prefixes (CSM, CSN …) come from */
+function DocNumberEditor({ c, setV, siblings, fileId, fileName }: { c: ColumnDraft; setV: (p: Record<string, unknown>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string }) {
+  const d = c.validation?.docNumber ?? { template: '', prefixes: [], prefixLookup: null, dateColumnId: null };
+  const set = (p: Partial<typeof d>) => setV({ docNumber: { ...d, ...p } });
+  const usesPrefix = hasPrefixToken(d.template);
+  const dateCols = siblings.filter((s) => s.id && s.key !== c.key && (s.dataType === 'date' || s.dataType === 'datetime'));
+  const sample = d.prefixes?.[0] ?? 'CSM';
+  return (
+    <div className="space-y-3 rounded-xl border border-primary/25 bg-primary/[.03] p-3 md:col-span-2">
+      <p className="text-[13px] font-semibold text-primary">รูปแบบเลขที่เอกสาร</p>
+      <Field label="รูปแบบ (พิมพ์ข้อความคงที่ปนกับตัวแปรได้อิสระ)" hint="เช่น {PREFIX}-{YYMMDD}-{SEQ:3} → CSM-260926-009">
+        <TextInput value={d.template} onChange={(e) => set({ template: e.target.value })} placeholder="{PREFIX}-{YYMMDD}-{SEQ:3}" className="font-mono" />
+      </Field>
+      <div className="flex flex-wrap gap-1.5">
+        {DOC_TOKENS.map((t) => (
+          <button key={t.token} type="button" title={t.label} onClick={() => set({ template: d.template + t.token })}
+            className="rounded-full border border-line bg-surface px-2.5 py-1 font-mono text-xs hover:border-primary/50 hover:text-primary">{t.token}</button>
+        ))}
+      </div>
+      {d.template && <p className="text-sm">ตัวอย่างเลขที่ที่จะได้: <b className="font-mono text-primary">{renderDocPreview(d.template, usesPrefix ? sample : null)}</b></p>}
+      {d.template && !/\{SEQ(:\d+)?\}/.test(d.template) && <p className="text-xs text-warning">ยังไม่มี {'{SEQ:3}'} — เลขที่อาจซ้ำกันได้ ควรใส่ตัวนับฉบับ</p>}
+      {usesPrefix && (
+        <div className="space-y-2">
+          <Segmented size="sm" value={d.prefixLookup ? 'lookup' : 'custom'} onChange={(m) => set(m === 'lookup' ? { prefixLookup: { sheetId: '', columnId: '' }, prefixes: null } : { prefixLookup: null, prefixes: d.prefixes ?? [] })}
+            options={[{ value: 'custom', label: 'กำหนดหัวเลขเอง' }, { value: 'lookup', label: 'ดึงหัวเลขจากตารางอื่น' }]} />
+          {d.prefixLookup
+            ? <LookupEditor title="ตารางที่เก็บหัวเลข (เช่น CSM, CSN, CSR)" lookup={d.prefixLookup} onChange={(l) => set({ prefixLookup: { sheetId: l.sheetId, columnId: l.columnId } })} siblings={siblings} selfKey={c.key} fileId={fileId} fileName={fileName} hideParent />
+            : <Field label="รายการหัวเลข (คั่นด้วยเครื่องหมายจุลภาค)"><TextInput value={(d.prefixes ?? []).join(', ')} onChange={(e) => set({ prefixes: e.target.value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) })} placeholder="CSM, CSN, CSR" /></Field>}
+        </div>
+      )}
+      {/\{(YY|YYYY|MM|DD|YYMMDD|YYYYMMDD|YYMM|BB|BBBB)\}/.test(d.template) && (
+        <Field label="วันที่ที่ใช้ในเลขที่">
+          <Select value={d.dateColumnId ?? ''} onChange={(e) => set({ dateColumnId: e.target.value || null })}>
+            <option value="">วันที่ที่บันทึกแถว (วันนี้)</option>
+            {dateCols.map((s) => <option key={s.key} value={s.id}>{s.name || '(ไม่มีชื่อ)'}</option>)}
+          </Select>
+        </Field>
+      )}
+      <p className="text-xs text-muted">เลขที่ออกให้อัตโนมัติตอนบันทึกแถว เลขฉบับ ({'{SEQ}'}) จะเริ่มนับใหม่เมื่อส่วนอื่นของเลขที่เปลี่ยน เช่น เปลี่ยนวัน หรือเปลี่ยนหัวเลข</p>
+    </div>
+  );
+}
+
 function ColumnDetails({ c, set, siblings, fileId, fileName }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string }) {
   const v = c.validation ?? {};
   const setV = (p: Record<string, unknown>) => set({ validation: { ...v, ...p } });
@@ -50,6 +94,7 @@ function ColumnDetails({ c, set, siblings, fileId, fileName }: { c: ColumnDraft;
     <div className="grid gap-4 border-t border-line bg-ink/[.02] p-4 md:grid-cols-2">
       <Field label="คำอธิบาย (แสดงเป็นคำแนะนำ)"><TextInput value={c.description ?? ''} onChange={(e) => set({ description: e.target.value })} /></Field>
       <Field label="ข้อความตัวอย่างในช่องกรอก"><TextInput value={c.placeholder ?? ''} onChange={(e) => set({ placeholder: e.target.value })} /></Field>
+      {c.dataType === 'doc_number' && <DocNumberEditor c={c} setV={setV} siblings={siblings} fileId={fileId} fileName={fileName} />}
       {isSelect(c.dataType) && (
         <div className="space-y-3 md:col-span-2">
           <Segmented size="sm" value={isLookup ? 'lookup' : 'custom'} onChange={(m) => setV({ lookup: m === 'lookup' ? { sheetId: '', columnId: '', parent: null } : null })}
@@ -87,9 +132,11 @@ function ColumnDetails({ c, set, siblings, fileId, fileName }: { c: ColumnDraft;
       )}
       {c.dataType === 'image' && <Field label="จำนวนรูปสูงสุดต่อเซลล์ (ว่าง = ไม่จำกัด)"><TextInput inputMode="numeric" value={v.maxSelections ?? ''} onChange={(e) => setV({ maxSelections: num(e.target.value) })} /></Field>}
       {c.dataType === 'multi_select' && <Field label="เลือกได้สูงสุด"><TextInput inputMode="numeric" value={v.maxSelections ?? ''} onChange={(e) => setV({ maxSelections: num(e.target.value) })} /></Field>}
-      <Field label="ค่าเริ่มต้นเมื่อเพิ่มแถวใหม่">
-        <FieldInput col={{ ...c, placeholder: 'ไม่มี', options: c.options ?? [], validation: v } as any} value={c.defaultValue ?? null} onChange={(d) => set({ defaultValue: d })} />
-      </Field>
+      {c.dataType !== 'doc_number' && (
+        <Field label="ค่าเริ่มต้นเมื่อเพิ่มแถวใหม่">
+          <FieldInput col={{ ...c, placeholder: 'ไม่มี', options: c.options ?? [], validation: v } as any} value={c.defaultValue ?? null} onChange={(d) => set({ defaultValue: d })} />
+        </Field>
+      )}
       <Field label="ความกว้างเริ่มต้น (px)"><TextInput inputMode="numeric" value={c.width} onChange={(e) => set({ width: Math.max(40, Math.min(1200, Number(e.target.value) || 40)) })} /></Field>
     </div>
   );
@@ -106,6 +153,11 @@ export function validateDrafts(cols: ColumnDraft[]): string | null {
     if (seen.has(n.toLowerCase())) return `ชื่อคอลัมน์ "${n}" ซ้ำกัน`;
     seen.add(n.toLowerCase());
     if (isSelect(c.dataType) && c.validation?.lookup) { if (!lookupDone(c)) return `คอลัมน์ "${n}": เลือกตารางและคอลัมน์ต้นทางของ Relationship ให้ครบ`; }
+    else if (c.dataType === 'doc_number') {
+      const dn = c.validation?.docNumber;
+      if (!dn?.template?.trim()) return `คอลัมน์ "${n}": กรุณากำหนดรูปแบบเลขที่`;
+      if (hasPrefixToken(dn.template) && !(dn.prefixes?.length) && !(dn.prefixLookup?.sheetId && dn.prefixLookup.columnId)) return `คอลัมน์ "${n}": กำหนดรายการหัวเลข หรือเลือกตารางที่เก็บหัวเลข`;
+    }
     else if (isSelect(c.dataType) && !(c.options ?? []).length) return `คอลัมน์ "${n}" ต้องมีตัวเลือกอย่างน้อย 1 รายการ`;
   }
   return null;
