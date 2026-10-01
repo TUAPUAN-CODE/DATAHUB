@@ -12,6 +12,7 @@ import { FileGlyph } from '@/components/files/icons';
 import { ColumnFilterMenu, FilterBar } from '@/components/sheet/ColumnFilterMenu';
 import { SheetTabs } from '@/components/sheet/SheetTabs';
 import { CellHistoryModal, RollbackModal, RowFormModal, RowHistoryModal, SheetTrashModal } from '@/components/sheet/SheetModals';
+import { UnionBanner } from '@/components/sheet/UnionBanner';
 import { ImportModal } from '@/components/sheet/ImportModal';
 import { RowViewModal } from '@/components/sheet/RowViewModal';
 import { SpreadsheetGrid } from '@/components/sheet/SpreadsheetGrid';
@@ -59,7 +60,8 @@ export default function FilePage() {
   const sheetId = sheets.find((s) => s.id === sp.get('sheet'))?.id ?? sheets[0]?.id ?? null;
   const view = useSheetView(sheetId);
   const level = file.data?.level ?? 0;
-  const canWrite = level >= LV.write;
+  const union = view.detail?.union ?? null;
+  const canWrite = level >= LV.write && !union; // a union sheet mirrors other sheets: edit them at the source
   const canManage = level >= LV.manage;
 
   const [search, setSearch] = useState('');
@@ -168,12 +170,13 @@ export default function FilePage() {
       <div ref={workspace} className={cn('ds-card flex min-h-0 flex-1 flex-col overflow-hidden !rounded-tl-none', full && '!rounded-none bg-app p-2')}>
         {!sheetId ? <EmptyState title="ไฟล์นี้ยังไม่มีชีต" /> : (
           <>
+            {union && sheetId && <UnionBanner sheetId={sheetId} union={union} canManage={canManage} onSynced={() => { void view.loadDetail(); void view.loadRows(true); void file.reload(true); }} />}
             <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2">
               <TextInput icon={<Search />} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาในชีต…" className="!h-9 w-full sm:w-64" />
               {canWrite && <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setRowForm({ row: null })}>เพิ่มแถว</Button>}
               {canWrite && selRows.length > 0 && <Button size="sm" variant="secondary" className="!text-danger" icon={<Trash2 className="h-4 w-4" />} onClick={() => void deleteRows(selRows)}>{selRows.length > 1 ? `ลบ ${selRows.length} แถวที่เลือก` : 'ลบแถวที่เลือก'}</Button>}
               {canWrite && <Button size="sm" variant="secondary" icon={<Upload className="h-4 w-4" />} onClick={() => setModal('import')}>นำเข้า</Button>}
-              {canManage && <Button size="sm" variant="secondary" icon={<Columns3 className="h-4 w-4" />} onClick={() => setModal('columns')}>คอลัมน์</Button>}
+              {canManage && !union && <Button size="sm" variant="secondary" icon={<Columns3 className="h-4 w-4" />} onClick={() => setModal('columns')}>คอลัมน์</Button>}
               <div className="mx-1 hidden h-6 w-px bg-line sm:block" />
               <IconButton label="ย้อนกลับ (Ctrl+Z)" onClick={() => void view.undo()} disabled={!view.canUndo}><Undo2 className="h-4 w-4" /></IconButton>
               <IconButton label="ทำซ้ำ (Ctrl+Y)" onClick={() => void view.redo()} disabled={!view.canRedo}><Redo2 className="h-4 w-4" /></IconButton>
@@ -213,7 +216,7 @@ export default function FilePage() {
               {(!view.detail || (view.loadingRows && !view.rows.length)) ? (
                 <div className="space-y-1.5 p-3">{Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-8" />)}</div>
               ) : (
-                <SpreadsheetGrid view={view} canWrite={canWrite} canManage={canManage} onOpenRow={(row) => setRowForm({ row })} onCellHistory={(row, col) => setCellHist({ row, col })}
+                <SpreadsheetGrid view={view} canWrite={canWrite} canManage={canManage && !union} onOpenRow={(row) => setRowForm({ row })} onCellHistory={(row, col) => setCellHist({ row, col })}
                   onRowHistory={setRowHist} onFilterColumn={(colId, el) => setFilterFor({ colId, el })} onColumnSettings={() => setModal('columns')} onDeleteRows={deleteRows} onSelectRows={setSelRows} onViewRow={setRowView} />
               )}
               {view.loadingRows && view.rows.length > 0 && <div className="absolute inset-x-0 top-0 h-0.5 animate-pulse bg-primary" />}

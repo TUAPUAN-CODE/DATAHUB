@@ -1,7 +1,7 @@
 import { del, get, post, put } from './client';
 import type {
   AccessList, AccessRequest, AuditEntry, CellValue, Column, ColumnFilter, Crumb, DashboardMeta, DataSource, FileItem, FolderItem,
-  NotificationItem, Perm, Role, Row, Sheet, SheetPrefs, SortSpec, User, UsersDict, Widget, WidgetData,
+  NotificationItem, Perm, Role, Row, Sheet, SheetPrefs, SortSpec, UnionStatus, User, UsersDict, Widget, WidgetData,
 } from '@/types';
 
 export const authApi = {
@@ -46,9 +46,16 @@ export const filesApi = {
 };
 
 export interface SheetDetail {
+  union?: UnionStatus | null;
   sheet: Sheet; file: { id: string; name: string; folderId: string }; level: number; permission: Perm;
   columns: Column[]; deletedColumns: Column[]; prefs: SheetPrefs;
 }
+export const unionApi = {
+  createFile: (b: { name: string; folderId: string; sources: string[] }) => post<{ id: string; sheetId: string }>('/union/files', b),
+  addSheet: (fileId: string, b: { name: string; sources: string[] }) => post<{ id: string }>(`/files/${fileId}/sheets/union`, b),
+  setSources: (sheetId: string, sources: string[]) => put(`/sheets/${sheetId}/union`, { sources }),
+  sync: (sheetId: string) => post(`/sheets/${sheetId}/union/sync`),
+};
 export const sheetsApi = {
   get: (id: string) => get<SheetDetail>(`/sheets/${id}`),
   savePrefs: (id: string, prefs: Partial<SheetPrefs>) => put<SheetPrefs>(`/sheets/${id}/prefs`, prefs),

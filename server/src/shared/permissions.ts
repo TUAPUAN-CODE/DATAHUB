@@ -254,7 +254,11 @@ export async function requireFolder(user: AuthUser, folderId: string, min: numbe
   return { folder, level, ctx };
 }
 
-export async function requireSheet(user: AuthUser, sheetId: string, min: number, tx?: Tx) {
+/**
+ * `allowUnion`: management actions that make sense on a union sheet (rename, delete). Every write to its data or
+ * structure is refused: the rows belong to the source sheets and are mirrored automatically.
+ */
+export async function requireSheet(user: AuthUser, sheetId: string, min: number, tx?: Tx, allowUnion = false) {
   const sheet = await q1(
     `SELECT s.*, f.folder_id, f.created_by AS file_created_by, f.file_name
      FROM Sheets s JOIN Files f ON f.file_id = s.file_id
@@ -266,6 +270,8 @@ export async function requireSheet(user: AuthUser, sheetId: string, min: number,
   const ctx = await PermCtx.load(user);
   const level = ctx.fileLevel({ file_id: sheet.file_id, folder_id: sheet.folder_id, created_by: sheet.file_created_by });
   if (level < min) throw denied(level, min, { type: 'file', id: sheet.file_id, name: sheet.file_name });
+  if (min >= LV.write && sheet.union_config && !allowUnion)
+    throw forbidden('ชีตนี้รวมข้อมูลจากชีตอื่นอัตโนมัติ แก้ไขไม่ได้ กรุณาแก้ที่ไฟล์ต้นทาง', 'UNION_READONLY');
   return { sheet, level, ctx };
 }
 

@@ -31,6 +31,7 @@ import sheetRoutes from './routes/sheets';
 import themeRoutes from './routes/themes';
 import trashRoutes from './routes/trash';
 import oauthRoutes from './routes/oauth';
+import unionRoutes from './routes/union';
 import { shareManageRouter, sharePublicRouter } from './routes/share';
 import uploadRoutes from './routes/uploads';
 import userRoutes from './routes/users';
@@ -60,7 +61,7 @@ app.use('/api', sharePublicRouter);
 app.use('/api', authenticate);
 for (const r of [
   userRoutes, folderRoutes, fileRoutes, sheetRoutes, columnRoutes, rowRoutes, cellRoutes, accessRoutes, auditRoutes,
-  favoriteRoutes, activityRoutes, searchRoutes, notificationRoutes, themeRoutes, dashboardRoutes, uploadRoutes, trashRoutes, shareManageRouter,
+  favoriteRoutes, activityRoutes, searchRoutes, notificationRoutes, themeRoutes, dashboardRoutes, uploadRoutes, trashRoutes, shareManageRouter, unionRoutes,
 ]) app.use('/api', r);
 app.use('/api', (_req, res) => {
   res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'ไม่พบ API ที่เรียก' } });

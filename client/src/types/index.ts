@@ -50,7 +50,8 @@ export interface ColumnDraft {
   placeholder?: string | null; description?: string | null; validation?: Validation | null; options?: SelectOption[] | null;
 }
 
-export interface Sheet { id: string; fileId: string; name: string; order: number; tabColor: string | null }
+export interface Sheet { id: string; fileId: string; name: string; order: number; tabColor: string | null; isUnion?: boolean }
+export interface UnionStatus { sources: { sheetId: string; fileName: string | null; sheetName: string | null; ok: boolean; message: string | null; rows: number | null }[]; lastSyncAt: string | null }
 export interface SheetPrefs {
   zoom: number; frozenCols: number; frozenRows: number; colWidths: Record<string, number>; rowHeights: Record<string, number>;
   hiddenCols: string[]; rowHeight: number; pageSize: number;

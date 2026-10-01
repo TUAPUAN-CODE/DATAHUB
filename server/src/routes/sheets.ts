@@ -9,6 +9,7 @@ import { loadColumns } from '../services/cellWriter';
 import { assertUniqueNames, insertColumn } from '../services/structure';
 import { sheetInput } from '../shared/schemas';
 import { copySheet } from './files';
+import { syncUnionIfStale, unionStatus } from '../services/union';
 
 const router = Router();
 
@@ -30,7 +31,10 @@ router.get(
     const { sheet, level } = await requireSheet(req.user!, id, LV.read);
     const cols = await loadColumns(id, null, level >= LV.manage);
     const prefsRow = await q1(`SELECT prefs_json FROM UserSheetPrefs WHERE user_id = @u AND sheet_id = @s`, { u: T.uuid(req.user!.id), s: T.uuid(id) });
+    const union = await unionStatus(sheet);
+    if (union) syncUnionIfStale(sheet);
     ok(res, {
+      union,
       sheet: mapSheet(sheet),
       file: { id: sheet.file_id, name: sheet.file_name, folderId: sheet.folder_id },
       level,
@@ -109,7 +113,7 @@ router.put(
   '/sheets/:id',
   ah(async (req, res) => {
     const id = pid(req);
-    const { sheet } = await requireSheet(req.user!, id, LV.manage);
+    const { sheet } = await requireSheet(req.user!, id, LV.manage, undefined, true);
     const body = parse(z.object({ name: z.string().trim().min(1).max(200).optional(), tabColor: zColor.nullish() }), req.body);
     if (body.name && body.name !== sheet.sheet_name) {
       const exists = await q1(`SELECT 1 AS x FROM Sheets WHERE file_id = @f AND is_deleted = 0 AND sheet_name = @n AND sheet_id <> @s`,
@@ -145,7 +149,7 @@ router.delete(
   '/sheets/:id',
   ah(async (req, res) => {
     const id = pid(req);
-    const { sheet } = await requireSheet(req.user!, id, LV.manage);
+    const { sheet } = await requireSheet(req.user!, id, LV.manage, undefined, true);
     const count = await q1(`SELECT COUNT(*) AS n FROM Sheets WHERE file_id = @f AND is_deleted = 0`, { f: T.uuid(sheet.file_id) });
     if (Number(count?.n) <= 1) throw badRequest('ไฟล์ต้องมีอย่างน้อย 1 ชีต');
     await q(`UPDATE Sheets SET is_deleted = 1, updated_at = SYSUTCDATETIME() WHERE sheet_id = @s`, { s: T.uuid(id) });
