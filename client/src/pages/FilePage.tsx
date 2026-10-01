@@ -12,6 +12,7 @@ import { FileGlyph } from '@/components/files/icons';
 import { ColumnFilterMenu, FilterBar } from '@/components/sheet/ColumnFilterMenu';
 import { SheetTabs } from '@/components/sheet/SheetTabs';
 import { CellHistoryModal, RollbackModal, RowFormModal, RowHistoryModal, SheetTrashModal } from '@/components/sheet/SheetModals';
+import { FilterBarSettings } from '@/components/sheet/FilterBarSettings';
 import { UnionBanner } from '@/components/sheet/UnionBanner';
 import { ImportModal } from '@/components/sheet/ImportModal';
 import { RowViewModal } from '@/components/sheet/RowViewModal';
@@ -72,7 +73,7 @@ export default function FilePage() {
   const [rowHist, setRowHist] = useState<Row | null>(null);
   const [selRows, setSelRows] = useState<string[]>([]);
   const [rowView, setRowView] = useState<Row | null>(null);
-  const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'import' | 'share' | 'rename' | 'dup' | null>(null);
+  const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'import' | 'filterbar' | 'share' | 'rename' | 'dup' | null>(null);
   const [more, setMore] = useState(false);
   const [freeze, setFreeze] = useState(false);
   const [full, setFull] = useState(false);
@@ -129,6 +130,9 @@ export default function FilePage() {
   const f = file.data.file;
   const filterCol = filterFor ? view.allColumns.find((c) => c.id === filterFor.colId) ?? null : null;
   const hidden = view.prefs.hiddenCols.length;
+  // sheet setting: only some columns get a filter / sort button (always keep the ones in use)
+  const barSel = view.detail?.settings?.filterColumns;
+  const barColumns = barSel ? view.columns.filter((c) => barSel.includes(c.id) || view.query.filters.some((f) => f.columnId === c.id) || view.query.sorts.some((s) => s.columnId === c.id)) : view.columns;
 
   return (
     <div className="flex h-[calc(100dvh-4rem)] flex-col px-3 pb-3 sm:px-6">
@@ -209,7 +213,7 @@ export default function FilePage() {
                 <IconButton label={full ? 'ออกจากเต็มจอ' : 'เต็มจอ'} onClick={() => void toggleFull()}>{full ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}</IconButton>
               </div>
             </div>
-            <FilterBar columns={view.columns} filters={view.query.filters} sorts={view.query.sorts}
+            <FilterBar columns={barColumns} allColumns={view.columns} filters={view.query.filters} sorts={view.query.sorts} onConfigure={canManage ? () => setModal('filterbar') : undefined}
               onOpen={(colId, el) => setFilterFor({ colId, el })} onClearFilters={() => view.setQuery({ filters: [] })}
               onRemoveSort={(cid) => view.setQuery({ sorts: view.query.sorts.filter((s) => s.columnId !== cid) })} />
             <div className="relative min-h-0 flex-1">
@@ -246,6 +250,7 @@ export default function FilePage() {
           <RowHistoryModal row={rowHist} columns={view.allColumns} canRollback={canManage} onClose={() => setRowHist(null)} onChanged={() => void view.loadRows(true)} />
           <ColumnManagerModal open={modal === 'columns'} onClose={() => setModal(null)} sheetId={sheetId} fileId={f.id} fileName={f.name} columns={view.detail.columns} deleted={view.detail.deletedColumns}
             onSaved={() => { void view.loadDetail(); void view.loadRows(true); }} />
+          <FilterBarSettings open={modal === 'filterbar'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.columns} selected={barSel} onSaved={() => void view.loadDetail()} />
           <ImportModal open={modal === 'import'} onClose={() => setModal(null)} sheetId={sheetId} sheetName={view.detail.sheet.name} fileName={f.name} columns={view.detail.columns}
             onDone={() => void view.loadRows(true)} />
           <SheetTrashModal open={modal === 'trash'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.allColumns} onRestored={() => void view.loadRows(true)} />

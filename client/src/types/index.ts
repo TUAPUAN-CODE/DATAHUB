@@ -21,6 +21,8 @@ export interface FileItem {
   status: string; createdBy: string; createdByName: string | null; createdAt: string; updatedAt: string; sheetCount?: number;
   lastActivityAt: string | null; lastActivityBy: string | null; lastActivityAvatar: string | null; lastAction: string | null;
   level: number; permission: Perm; favorite: boolean; viewedAt?: string;
+  /** folders from the top down to the one holding the file (activity cards) */
+  pathParts?: { id: string; name: string }[];
 }
 
 export type DataType = 'varchar' | 'text' | 'int' | 'float' | 'date' | 'datetime' | 'boolean' | 'select' | 'multi_select' | 'url' | 'email' | 'image' | 'doc_number';

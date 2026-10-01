@@ -3,7 +3,7 @@ import { filesApi } from '@/api/endpoints';
 import { loadCols } from '@/lib/dashCols';
 import type { Column, ColumnDraft, Lookup, Sheet } from '@/types';
 import { Field, Select, Toggle } from '../ui/Inputs';
-import { SearchSelect } from '../ui/SearchSelect';
+import { FilePicker, PickedFile } from '../files/FilePicker';
 
 const OK_SOURCE = (c: Column) => c.dataType !== 'multi_select' && c.dataType !== 'image' && !c.isDeleted;
 
@@ -15,7 +15,8 @@ const OK_SOURCE = (c: Column) => c.dataType !== 'multi_select' && c.dataType !==
 export function LookupEditor({ lookup, onChange, siblings, selfKey, fileId, fileName, hideParent, title }: {
   lookup: Lookup; onChange: (l: Lookup) => void; siblings: ColumnDraft[]; selfKey: string; fileId?: string; fileName?: string; hideParent?: boolean; title?: string;
 }) {
-  const [srcFile, setSrcFile] = useState<string | null>(fileId ?? null);
+  const [picked, setPicked] = useState<PickedFile | null>(fileId ? { id: fileId, name: fileName ?? 'ไฟล์นี้', path: 'ไฟล์นี้' } : null);
+  const srcFile = picked?.id ?? null;
   const [sheets, setSheets] = useState<Sheet[]>([]);
   const [cols, setCols] = useState<Column[]>([]);
   useEffect(() => {
@@ -39,7 +40,7 @@ export function LookupEditor({ lookup, onChange, siblings, selfKey, fileId, file
       const files = await filesApi.accessible('').catch(() => []);
       for (const f of files.slice(0, 60)) {
         const r = await filesApi.get(f.id).catch(() => null);
-        if (r?.sheets.some((s) => s.id === lookup.sheetId)) { if (live) setSrcFile(f.id); return; }
+        if (r?.sheets.some((s) => s.id === lookup.sheetId)) { if (live) setPicked({ id: f.id, name: r.file.name, path: r.breadcrumb.map((c) => c.name).join(' / ') }); return; }
       }
     })();
     return () => { live = false; };
@@ -51,9 +52,9 @@ export function LookupEditor({ lookup, onChange, siblings, selfKey, fileId, file
     <div className="space-y-3 rounded-xl border border-primary/25 bg-primary/[.03] p-3 md:col-span-2">
       <p className="text-[13px] font-semibold text-primary">{title ?? 'เชื่อมโยงกับตารางอื่น (Relationship)'}</p>
       <div className="grid gap-3 md:grid-cols-3">
-        <Field label="ไฟล์ต้นทาง">
-          <SearchSelect value={srcFile} placeholder={fileName ?? 'เลือกไฟล์'} onChange={(v) => { setSrcFile(v); onChange({ sheetId: '', columnId: '', parent: null }); }}
-            load={async (q) => [...(fileId && fileName ? [{ value: fileId, label: fileName, sub: 'ไฟล์นี้' }] : []), ...(await filesApi.accessible(q)).filter((f) => f.id !== fileId).map((f) => ({ value: f.id, label: f.name, sub: f.path, color: f.color }))]} />
+        <Field label="ไฟล์ต้นทาง" hint="เลือกจากโฟลเดอร์ → โฟลเดอร์ย่อย → ไฟล์ หรือค้นหาชื่อ">
+          <FilePicker value={picked} placeholder="เลือกไฟล์ต้นทาง" extra={fileId ? [{ id: fileId, name: fileName ?? 'ไฟล์นี้', path: 'ไฟล์นี้' }] : undefined}
+            onChange={(f) => { setPicked(f); onChange({ sheetId: '', columnId: '', parent: null }); }} />
         </Field>
         <Field label="ชีตต้นทาง">
           <Select value={lookup.sheetId} onChange={(e) => onChange({ sheetId: e.target.value, columnId: '', parent: null })}>

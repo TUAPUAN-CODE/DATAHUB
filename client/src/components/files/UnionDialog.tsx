@@ -7,7 +7,7 @@ import type { Sheet } from '@/types';
 import { Button } from '../ui/Button';
 import { Field, Select, TextInput } from '../ui/Inputs';
 import { Modal } from '../ui/Modal';
-import { SearchSelect } from '../ui/SearchSelect';
+import { FilePicker } from './FilePicker';
 
 interface Src { sheetId: string; label: string }
 
@@ -21,7 +21,7 @@ export function UnionDialog({ open, onClose, mode, folderId, fileId, sheetId, in
 }) {
   const [name, setName] = useState('');
   const [sources, setSources] = useState<Src[]>([]);
-  const [pickFile, setPickFile] = useState<{ id: string; name: string } | null>(null);
+  const [pickFile, setPickFile] = useState<{ id: string; name: string; path: string } | null>(null);
   const [fileSheets, setFileSheets] = useState<Sheet[]>([]);
   const [pickSheet, setPickSheet] = useState('');
   const [busy, setBusy] = useState(false);
@@ -79,8 +79,7 @@ export function UnionDialog({ open, onClose, mode, folderId, fileId, sheetId, in
         </div>
         <div className="rounded-xl bg-ink/[.03] p-3">
           <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-            <SearchSelect value={pickFile?.id ?? null} placeholder="เลือกไฟล์ต้นทาง" onChange={(v, o) => setPickFile({ id: v, name: o.label })}
-              load={async (q) => (await filesApi.accessible(q)).filter((f) => f.id !== fileId).map((f) => ({ value: f.id, label: f.name, sub: f.path, color: f.color }))} />
+            <FilePicker value={pickFile ? { id: pickFile.id, name: pickFile.name, path: pickFile.path } : null} placeholder="เลือกไฟล์ต้นทาง" onChange={(f) => setPickFile({ id: f.id, name: f.name, path: f.path })} />
             <Select value={pickSheet} onChange={(e) => setPickSheet(e.target.value)} disabled={!fileSheets.length}>
               {!fileSheets.length && <option value="">— เลือกไฟล์ก่อน —</option>}
               {fileSheets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}

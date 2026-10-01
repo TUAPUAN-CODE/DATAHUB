@@ -10,7 +10,7 @@ import type { Agg, Column, DataSource, Sheet, Widget } from '@/types';
 import { Button } from '../ui/Button';
 import { Field, Segmented, Select, TextArea, TextInput, Toggle } from '../ui/Inputs';
 import { ColorInput } from '../ui/misc';
-import { SearchSelect } from '../ui/SearchSelect';
+import { FilePicker, PickedFile } from '../files/FilePicker';
 import { ChartFormat, ChartAnalytics } from './ChartFormat';
 import { useDash } from './dashContext';
 import { COMPARE_OPS, SLICER_MODES } from './SpecialBodies';
@@ -34,18 +34,20 @@ function SourcePicker({ ds, setDs, fileId, fileName, fileSheets, srcFile, setSrc
   setSrcFile: (id: string | undefined) => void; resetSeries: DataSource['series'];
 }) {
   const [sheets, setSheets] = useState<Sheet[]>(fileSheets);
+  const [picked, setPicked] = useState<PickedFile | null>({ id: srcFile, name: srcFile === fileId ? fileName : '…', path: srcFile === fileId ? 'ไฟล์ปัจจุบัน' : '' });
+  useEffect(() => { if (srcFile === fileId) { setPicked({ id: fileId, name: fileName, path: 'ไฟล์ปัจจุบัน' }); return; } filesApi.get(srcFile).then((r) => setPicked({ id: srcFile, name: r.file.name, path: r.breadcrumb.map((c) => c.name).join(' / ') })).catch(() => undefined); }, [srcFile, fileId, fileName]);
   useEffect(() => { if (srcFile === fileId) setSheets(fileSheets); else filesApi.get(srcFile).then((r) => setSheets(r.sheets)).catch(() => setSheets([])); }, [srcFile, fileId, fileSheets]);
   return (
     <>
-      <Field label="ไฟล์ข้อมูล">
-        <SearchSelect value={srcFile} placeholder={fileName}
-          onChange={async (v) => {
-            const r = await filesApi.get(v).catch(() => null);
+      <Field label="ไฟล์ข้อมูล" hint="เลือกจากโฟลเดอร์ → โฟลเดอร์ย่อย → ไฟล์ หรือค้นหาชื่อ">
+        <FilePicker value={picked} placeholder={fileName} extra={[{ id: fileId, name: fileName, path: 'ไฟล์ปัจจุบัน' }]}
+          onChange={async (f) => {
+            const r = await filesApi.get(f.id).catch(() => null);
             if (!r?.sheets.length) return toast.error('ไฟล์นี้ไม่มีชีตที่อ่านได้');
-            setSrcFile(v === fileId ? undefined : v);
+            setPicked(f);
+            setSrcFile(f.id === fileId ? undefined : f.id);
             setDs({ sheetId: r.sheets[0].id, xColumnId: null, groupByColumnId: null, series: resetSeries, filters: [] });
-          }}
-          load={async (q) => [{ value: fileId, label: fileName, sub: 'ไฟล์ปัจจุบัน' }, ...(await filesApi.accessible(q)).filter((f) => f.id !== fileId).map((f) => ({ value: f.id, label: f.name, sub: f.path, color: f.color }))]} />
+          }} />
       </Field>
       <Field label="ชีต">
         <Select value={ds.sheetId} onChange={(e) => setDs({ sheetId: e.target.value, xColumnId: null, groupByColumnId: null, series: resetSeries, filters: [] })}>

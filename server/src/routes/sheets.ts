@@ -35,6 +35,7 @@ router.get(
     if (union) syncUnionIfStale(sheet);
     ok(res, {
       union,
+      settings: safeJson(sheet.settings_json, {}) ?? {},
       sheet: mapSheet(sheet),
       file: { id: sheet.file_id, name: sheet.file_name, folderId: sheet.folder_id },
       level,
@@ -106,6 +107,20 @@ router.post(
     await audit({ userId: u.id, action: 'sheet_create', entityType: 'sheet', entityId: sheetId, fileId, sheetId, newValue: { name: body.name } }, req);
     const s = await q1(`SELECT * FROM Sheets WHERE sheet_id = @s`, { s: T.uuid(sheetId) });
     ok(res, mapSheet(s), 201);
+  }),
+);
+
+/** Sheet-level settings (managers): which columns get a button in the filter / sort bar above the table */
+router.put(
+  '/sheets/:id/settings',
+  ah(async (req, res) => {
+    const id = pid(req);
+    const { sheet } = await requireSheet(req.user!, id, LV.manage, undefined, true);
+    const body = parse(z.object({ filterColumns: z.array(zId).max(1000).nullable() }), req.body);
+    const settings = { ...(safeJson<Record<string, unknown>>(sheet.settings_json, {}) ?? {}), filterColumns: body.filterColumns };
+    await q(`UPDATE Sheets SET settings_json = @j, updated_at = SYSUTCDATETIME() WHERE sheet_id = @s`, { j: T.text(JSON.stringify(settings)), s: T.uuid(id) });
+    await audit({ userId: req.user!.id, action: 'sheet_update', entityType: 'sheet', entityId: id, fileId: sheet.file_id, sheetId: id, newValue: { filterColumns: body.filterColumns?.length ?? 'all' } }, req);
+    ok(res, { saved: true, settings });
   }),
 );
 

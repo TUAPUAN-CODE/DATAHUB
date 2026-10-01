@@ -1,9 +1,10 @@
 import { ClipboardEvent, KeyboardEvent, MouseEvent as RMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownAZ, ArrowUpAZ, ChevronDown, ClipboardPaste, Copy, Eraser, Eye, EyeOff, Filter, History, Maximize2, MoveHorizontal,
-  Pin, PinOff, Settings2, SquarePen, Trash2,
+  Pin, PinOff, Settings2, SquarePen, Trash2, ArrowDownUp,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { ColumnStat, rowsApi } from '@/api/endpoints';
 import { parseTsv, toTsv } from '@/lib/csv';
 import { TYPE_META } from '@/lib/columnTypes';
 import { dependentsOf } from '@/lib/lookup';
@@ -319,6 +320,34 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
   };
 
   /* ---------- status bar ---------- */
+  // ---- whole-column selection (click a header) with count / sum for the current filter
+  const [colSel, setColSel] = useState<string[]>([]);
+  const lastCol = useRef<string | null>(null);
+  const [stats, setStats] = useState<{ totalRows: number; columns: ColumnStat[] } | null>(null);
+  const pickColumn = (id: string, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
+    setSel(null);
+    setColSel((cur) => {
+      if (e.shiftKey && lastCol.current) {
+        const a = cols.findIndex((c) => c.id === lastCol.current), b = cols.findIndex((c) => c.id === id);
+        return cols.slice(Math.min(a, b), Math.max(a, b) + 1).map((c) => c.id);
+      }
+      if (e.ctrlKey || e.metaKey) return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      return cur.length === 1 && cur[0] === id ? [] : [id];
+    });
+    lastCol.current = id;
+  };
+  useEffect(() => { if (sel) setColSel([]); }, [sel]);
+  const sheetKey = view.detail?.sheet.id;
+  const statsKey = JSON.stringify([colSel, query.filters, query.search, view.total]);
+  useEffect(() => {
+    if (!colSel.length || !sheetKey) { setStats(null); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      rowsApi.columnStats(sheetKey, { columnIds: colSel, filters: query.filters, search: query.search || undefined }).then((r) => live && setStats(r)).catch(() => live && setStats(null));
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [statsKey, rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const status = useMemo(() => {
     if (!bounds) return null;
     const cells = (bounds.r2 - bounds.r1 + 1) * (bounds.c2 - bounds.c1 + 1);
@@ -360,16 +389,19 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                 const s = sortOf(c.id);
                 return (
                   <th key={c.id} data-col={ci} role="columnheader" aria-sort={s ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                    className={cn('group select-none text-left', ci === fc - 1 && 'freeze-col-edge')}
+                    className={cn('group select-none text-left', ci === fc - 1 && 'freeze-col-edge', colSel.includes(c.id) && 'colsel')}
                     style={{ position: 'sticky', top: 0, left: ci < fc ? lefts[ci] : undefined, zIndex: ci < fc ? 28 : 26 }}
                     onContextMenu={(e) => { e.preventDefault(); setMenu({ anchor: { x: e.clientX, y: e.clientY }, kind: 'header', r: 0, c: ci }); }}>
                     <div className="flex h-full items-center gap-1.5" style={{ padding: `0 ${8 * z}px` }}>
                       <span className="shrink-0 opacity-60 [&>svg]:h-[1em] [&>svg]:w-[1em]">{TYPE_META[c.dataType].icon}</span>
-                      <button onClick={(e) => cycleSort(c, e.shiftKey)} title={`${c.name}${c.description ? ` — ${c.description}` : ''}\nคลิกเพื่อเรียง · Shift+คลิกเพื่อเรียงหลายคอลัมน์`}
+                      <button onClick={(e) => pickColumn(c.id, e)} title={`${c.name}${c.description ? ` — ${c.description}` : ''}\nคลิกเพื่อเลือกคอลัมน์ (ดูจำนวนแถว/ผลรวม) · Ctrl+คลิก เลือกหลายคอลัมน์ · Shift+คลิก เลือกเป็นช่วง`}
                         className="min-w-0 flex-1 truncate text-left font-medium text-ink/85">
                         {c.name}{c.isRequired && <span className="ml-0.5 text-danger">*</span>}
                       </button>
-                      {s && <span className="shrink-0 text-primary" style={{ fontSize: '0.8em' }}>{s.dir === 'asc' ? '▲' : '▼'}{query.sorts.length > 1 ? s.i + 1 : ''}</span>}
+                      <button onClick={(e) => { e.stopPropagation(); cycleSort(c, e.shiftKey); }} aria-label={`เรียงตาม ${c.name}`} title="คลิกเพื่อเรียง · Shift+คลิกเพื่อเรียงหลายคอลัมน์"
+                        className={cn('shrink-0 rounded px-0.5 text-primary hover:bg-ink/10', !s && 'text-muted opacity-0 group-hover:opacity-100')} style={{ fontSize: '0.8em' }}>
+                        {s ? <>{s.dir === 'asc' ? '▲' : '▼'}{query.sorts.length > 1 ? s.i + 1 : ''}</> : <ArrowDownUp className="h-[1em] w-[1em]" />}
+                      </button>
                       <button onClick={(e) => onFilterColumn(c.id, e.currentTarget.closest('th') as HTMLElement)} aria-label={`ตัวกรอง ${c.name}`}
                         className={cn('grid shrink-0 place-items-center rounded p-0.5', filtered(c.id) ? 'bg-primary text-white' : 'opacity-0 hover:bg-ink/10 group-hover:opacity-100')}>
                         {filtered(c.id) ? <Filter className="h-[0.9em] w-[0.9em]" /> : <ChevronDown className="h-[1em] w-[1em]" />}
@@ -413,7 +445,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                     const isEdit = editing?.r === ri && editing?.c === ci;
                     return (
                       <td key={col.id} data-cell={`${ri}:${ci}`} role="gridcell" aria-selected={inSel(ri, ci)}
-                        className={cn(inSel(ri, ci) && 'sel', isFocus && 'focus', col.isRequired && isEmpty(v) && 'req-empty', ci === fc - 1 && 'freeze-col-edge',
+                        className={cn(inSel(ri, ci) && 'sel', isFocus && 'focus', colSel.includes(col.id) && 'colsel', col.isRequired && isEmpty(v) && 'req-empty', ci === fc - 1 && 'freeze-col-edge',
                           ri === fr - 1 && 'freeze-row-edge', flash.has(`${row.id}:${col.id}`) && 'cell-flash', col.dataType === 'boolean' && 'text-center')}
                         style={stickyCell(ri, ci)}
                         title={col.isRequired && isEmpty(v) ? `"${col.name}" จำเป็นต้องกรอก` : undefined}
@@ -454,7 +486,29 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
       </div>
 
       <div className="flex h-9 shrink-0 items-center gap-4 overflow-x-auto border-t border-line px-3 text-xs text-muted">
-        {status ? (
+        {colSel.length > 0 ? (
+          <>
+            <button onClick={() => setColSel([])} className="shrink-0 rounded-lg bg-primary/10 px-2 py-0.5 font-medium text-primary hover:bg-primary/20">เลือก {colSel.length} คอลัมน์ ✕</button>
+            {stats ? stats.columns.map((s) => {
+              const col = cols.find((c) => c.id === s.columnId);
+              if (!col) return null;
+              const dec = col.validation?.decimals ?? (col.dataType === 'float' ? 2 : 0);
+              return (
+                <span key={s.columnId} className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line px-2 py-0.5">
+                  <b className="text-ink/85">{col.name}</b>
+                  <span>แถว {stats.totalRows.toLocaleString()}</span>
+                  <span>มีข้อมูล {s.filled.toLocaleString()}</span>
+                  {stats.totalRows - s.filled > 0 && <span>ว่าง {(stats.totalRows - s.filled).toLocaleString()}</span>}
+                  {s.sum !== null && <b className="text-primary">ผลรวม {fmtNumber(s.sum, dec)}</b>}
+                  {s.avg !== null && <span>เฉลี่ย {fmtNumber(s.avg, Math.max(dec, 2))}</span>}
+                  {s.min !== null && <span>ต่ำสุด {fmtNumber(Number(s.min), dec)}</span>}
+                  {s.max !== null && <span>สูงสุด {fmtNumber(Number(s.max), dec)}</span>}
+                  {s.trueCount !== null && <span>ใช่ {s.trueCount.toLocaleString()}</span>}
+                </span>
+              );
+            }) : <span>กำลังคำนวณ…</span>}
+          </>
+        ) : status ? (
           <>
             <span className="whitespace-nowrap font-medium text-ink/80">{status.fcol?.name} · แถว #{status.focus?.order}</span>
             {status.meta && <span className="whitespace-nowrap">แก้ไขโดย {users[status.meta.by]?.name ?? 'ผู้ใช้'} · {relTime(status.meta.at)}</span>}
@@ -471,7 +525,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
             )}
           </>
         ) : (
-          <span>คลิกเซลล์เพื่อเลือก · ดับเบิลคลิกหรือ Enter เพื่อแก้ไข · Ctrl+Z ย้อนกลับ · Ctrl+ล้อเมาส์ เพื่อซูม</span>
+          <span>คลิกเซลล์เพื่อเลือก · คลิกชื่อคอลัมน์เพื่อดูจำนวนแถว/ผลรวม (Ctrl+คลิก เลือกหลายคอลัมน์) · ดับเบิลคลิกหรือ Enter เพื่อแก้ไข · Ctrl+Z ย้อนกลับ</span>
         )}
       </div>
 

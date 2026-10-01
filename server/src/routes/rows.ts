@@ -9,7 +9,7 @@ import { LV, requireSheet } from '../shared/permissions';
 import { filterSchema, sortSchema } from '../shared/schemas';
 import { loadColumns, writeCell } from '../services/cellWriter';
 import { applyRollback, planRollback } from '../services/rollback';
-import { distinctValues, hydrateRows, queryRows, userNames } from '../services/rowQuery';
+import { baseWhere, distinctValues, hydrateRows, Params, queryRows, userNames } from '../services/rowQuery';
 import { dateParts, docDate, docPrefixes, hasPrefixToken, DocNumberCfg, getDocCfg, interpretDocRaw, nextDocNumbers } from '../services/docNumber';
 import { lookupResolver, lookupValues, getLookup, normalizeWithLookup, parentValueOf } from '../services/lookup';
 import { emitToSheet } from '../socket';
@@ -125,6 +125,56 @@ router.post(
     if (!l) throw badRequest('คอลัมน์นี้ไม่ได้ดึงตัวเลือกจากตารางอื่น');
     // The list is read with the server's rights on purpose: writers may pick a value without having read access to the source sheet
     ok(res, { options: await lookupValues(l, body.parentValue ?? null, body.search), needsParent: !!l.parent });
+  }),
+);
+
+/** Count / sum / average / min / max of whole columns for the current filter (shown when column headers are selected) */
+router.post(
+  '/sheets/:id/column-stats',
+  ah(async (req, res) => {
+    const sheetId = pid(req);
+    await requireSheet(req.user!, sheetId, LV.read);
+    const body = parse(z.object({ columnIds: z.array(zId).min(1).max(40), filters: z.array(filterSchema).max(50).default([]), search: z.string().max(200).optional() }), req.body);
+    const cols = await loadColumns(sheetId);
+    const colMap = new Map(cols.map((c) => [c.column_id, c]));
+    const ids = body.columnIds.filter((id) => colMap.has(id));
+    const p = new Params();
+    const where = baseWhere(sheetId, colMap, p, { filters: body.filters, search: body.search });
+    const total = await q1(`SELECT COUNT(*) AS n FROM Rows r WHERE ${where}`, p.values);
+    const rows = ids.length
+      ? await q(
+          `SELECT wc.column_id,
+             SUM(CASE WHEN (wc.value_text IS NOT NULL AND wc.value_text <> N'') OR wc.value_int IS NOT NULL OR wc.value_float IS NOT NULL OR wc.value_date IS NOT NULL
+                       OR wc.value_bool IS NOT NULL OR (wc.value_json IS NOT NULL AND wc.value_json <> N'[]') THEN 1 ELSE 0 END) AS filled,
+             COUNT(wc.value_int) AS n_int, SUM(CAST(wc.value_int AS FLOAT)) AS s_int, MIN(wc.value_int) AS min_int, MAX(wc.value_int) AS max_int,
+             COUNT(wc.value_float) AS n_float, SUM(wc.value_float) AS s_float, MIN(wc.value_float) AS min_float, MAX(wc.value_float) AS max_float,
+             SUM(CASE WHEN wc.value_bool = 1 THEN 1 ELSE 0 END) AS n_true
+           FROM Cells wc JOIN Rows r ON r.row_id = wc.row_id
+           WHERE ${where} AND wc.column_id IN ${idList('@scols')} GROUP BY wc.column_id`,
+          { ...p.values, scols: jsonParam(ids) },
+        )
+      : [];
+    const byId = new Map(rows.map((r) => [r.column_id, r]));
+    ok(res, {
+      totalRows: Number(total?.n ?? 0),
+      columns: ids.map((id) => {
+        const r = byId.get(id);
+        const t = colMap.get(id).data_type as string;
+        const isInt = t === 'int';
+        const isFloat = t === 'float';
+        const n = isInt ? Number(r?.n_int ?? 0) : isFloat ? Number(r?.n_float ?? 0) : 0;
+        const sum = isInt ? Number(r?.s_int ?? 0) : isFloat ? Number(r?.s_float ?? 0) : null;
+        return {
+          columnId: id,
+          filled: Number(r?.filled ?? 0),
+          sum: isInt || isFloat ? sum : null,
+          avg: (isInt || isFloat) && n ? (sum as number) / n : null,
+          min: isInt ? r?.min_int ?? null : isFloat ? r?.min_float ?? null : null,
+          max: isInt ? r?.max_int ?? null : isFloat ? r?.max_float ?? null : null,
+          trueCount: t === 'boolean' ? Number(r?.n_true ?? 0) : null,
+        };
+      }),
+    });
   }),
 );
 

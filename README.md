@@ -44,9 +44,10 @@ The UI is in Thai. This README is in English and uses Thai terms where helpful.
 | Tables | **Import from Excel / CSV** (column mapping, validation report, template download), **relationships** (a select column takes its options from a column of another sheet, optionally filtered by another column in the same row, e.g. Plant → Line), and an option to hide the “— ไม่ระบุ —” choice. |
 | Tables | **Auto document numbers** (column type “เลขที่เอกสารอัตโนมัติ”): free-form template such as `{PREFIX}-{YYMMDD}-{SEQ:3}` → `CSM-260926-009`; prefixes (CSM/CSN/CSR) come from a fixed list or from a column of another sheet; the running number restarts when the date or prefix changes. |
 | Files | **Union files / sheets**: gather the rows of several sheets (from different files) into one read-only sheet. Every source must have exactly the same columns (name, type, required flag, options, rules) – the system lists each difference. A “source” column shows where a row came from; data re-syncs automatically (or with “ซิงค์ตอนนี้”). |
+| Tables | Click column headers (Ctrl/Shift for several) to see **row count and sum / average / min / max** of whole columns for the current filter; managers choose which columns appear in the **filter / sort bar** per sheet; file pickers browse **folder → sub-folder → file** (with search). |
 | Sidebar | **Dashboards** page listing every dashboard you can open; row delete button (hover the row number, or select rows and use the toolbar). |
 
-> Existing databases: start the API once (or run `npm run db:init`) – `database/02_*.sql` and `03_*.sql` are applied automatically and is safe to re-run.
+> Existing databases: start the API once (or run `npm run db:init`) – `database/02_*.sql` and `03_*.sql` and `04_*.sql` are applied automatically and is safe to re-run.
 
 ### Dashboard details
 

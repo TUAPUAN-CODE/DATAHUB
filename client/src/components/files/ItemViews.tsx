@@ -1,6 +1,6 @@
 import { DragEvent, MouseEvent, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { MoreHorizontal } from 'lucide-react';
+import { ChevronRight, FolderOpen, MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { actionVerb, fmtDateTime, levelToPerm, relTime } from '@/lib/format';
 import type { FileItem, FolderItem } from '@/types';
@@ -115,11 +115,23 @@ export function ActivityCard({ file }: { file: FileItem }) {
       className="ds-card group block overflow-hidden transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
       <div className="h-32 overflow-hidden border-b border-line"><FileThumb id={file.id} color={file.color} className="transition-transform duration-500 group-hover:scale-[1.04]" /></div>
       <div className="p-4">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-start gap-2.5">
           <FileGlyph color={file.color} size={26} />
-          <span className="truncate text-xs font-semibold" style={{ color: file.color }}>{file.folderName}</span>
+          <div className="min-w-0 flex-1" title={['ไฟล์ทั้งหมด', ...(file.pathParts ?? []).map((p) => p.name)].join(' / ')}>
+            <p className="flex flex-wrap items-center gap-x-1 text-[11px] leading-snug text-muted">
+              <FolderOpen className="h-3 w-3 shrink-0" style={{ color: file.color }} />
+              <span>ไฟล์ทั้งหมด</span>
+              {(file.pathParts ?? [{ id: file.folderId, name: file.folderName ?? '' }]).map((p, i, a) => (
+                <span key={p.id} className="inline-flex items-center gap-1">
+                  <ChevronRight className="h-3 w-3 shrink-0 opacity-50" />
+                  <span className={i === a.length - 1 ? 'font-semibold' : ''} style={i === a.length - 1 ? { color: file.color } : undefined}>{p.name}</span>
+                </span>
+              ))}
+            </p>
+          </div>
         </div>
         <p className="mt-2 line-clamp-2 min-h-[2.6em] text-[15px] font-semibold leading-snug">{file.name}</p>
+        <p className="mt-1 text-[11px] text-muted">{file.sheetCount != null && <>{file.sheetCount} ชีต · </>}สร้างโดย {file.createdByName ?? '—'}{file.createdAt ? ` · ${fmtDateTime(file.createdAt)}` : ''}</p>
         <div className="mt-3 flex items-center gap-2 text-xs text-muted">
           <Avatar name={file.lastActivityBy ?? file.createdByName} src={file.lastActivityAvatar} size={24} />
           <span className="min-w-0 truncate">

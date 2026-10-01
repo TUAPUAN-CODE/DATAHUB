@@ -45,8 +45,10 @@ export const filesApi = {
   accessible: (q = '') => get<{ id: string; name: string; color: string; folderId: string; path: string }[]>('/files/accessible', { q }),
 };
 
+export interface SheetSettings { filterColumns?: string[] | null }
 export interface SheetDetail {
   union?: UnionStatus | null;
+  settings?: SheetSettings;
   sheet: Sheet; file: { id: string; name: string; folderId: string }; level: number; permission: Perm;
   columns: Column[]; deletedColumns: Column[]; prefs: SheetPrefs;
 }
@@ -58,6 +60,7 @@ export const unionApi = {
 };
 export const sheetsApi = {
   get: (id: string) => get<SheetDetail>(`/sheets/${id}`),
+  saveSettings: (id: string, s: { filterColumns: string[] | null }) => put(`/sheets/${id}/settings`, s),
   savePrefs: (id: string, prefs: Partial<SheetPrefs>) => put<SheetPrefs>(`/sheets/${id}/prefs`, prefs),
   create: (fileId: string, b: { name: string; tabColor?: string | null; columns?: any[]; copyStructureFrom?: string | null }) =>
     post<Sheet>(`/files/${fileId}/sheets`, b),
@@ -77,6 +80,7 @@ export const columnsApi = {
 export interface RowQueryBody { page: number; pageSize: number; sorts: SortSpec[]; filters: ColumnFilter[]; search?: string }
 export interface RowPage { rows: Row[]; total: number; page: number; pageSize: number; users: UsersDict }
 export interface CellVersion { id: number; oldValue: CellValue; newValue: CellValue; source: string; by: string; byName: string; avatarUrl: string | null; at: string; version: number }
+export interface ColumnStat { columnId: string; filled: number; sum: number | null; avg: number | null; min: number | null; max: number | null; trueCount: number | null }
 export interface ImportResult { inserted: number; valid: number; invalid: number; skippedEmpty: number; errors: { rowNo: number; columnId: string; columnName: string; message: string }[] }
 export const rowsApi = {
   query: (sheetId: string, b: RowQueryBody) => post<RowPage>(`/sheets/${sheetId}/rows/query`, b),
@@ -84,6 +88,8 @@ export const rowsApi = {
     post<{ items: { value: any; count: number }[]; blankCount: number; truncated: boolean }>(`/sheets/${sheetId}/distinct`, b),
   create: (sheetId: string, values: Record<string, CellValue>) => post<{ row: Row; users: UsersDict }>(`/sheets/${sheetId}/rows`, { values }),
   remove: (rowId: string) => del(`/rows/${rowId}`),
+  columnStats: (sheetId: string, b: { columnIds: string[]; filters: ColumnFilter[]; search?: string }) =>
+    post<{ totalRows: number; columns: ColumnStat[] }>(`/sheets/${sheetId}/column-stats`, b),
   lookupOptions: (sheetId: string, b: { columnId: string; parentValue?: string | null; search?: string }) =>
     post<{ options: string[]; needsParent: boolean }>(`/sheets/${sheetId}/lookup-options`, b),
   docPreview: (sheetId: string, b: { columnId: string; prefix?: string | null; date?: string | null }) =>
