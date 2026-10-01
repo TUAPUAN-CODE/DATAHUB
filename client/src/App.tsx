@@ -19,6 +19,7 @@ const UsersPage = lazy(() => import('@/pages/UsersPage'));
 const TrashPage = lazy(() => import('@/pages/TrashPage'));
 const DashboardsPage = lazy(() => import('@/pages/DashboardsPage'));
 const PublicSharePage = lazy(() => import('@/pages/PublicSharePage'));
+const PdfDesignerPage = lazy(() => import('@/pages/PdfDesignerPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="files/new" element={<RequireRole roles={['master', 'admin']}><FileBuilderPage /></RequireRole>} />
           <Route path="files/:id" element={<FilePage />} />
           <Route path="files/:fileId/dashboards/:dashId" element={<DashboardPage />} />
+          <Route path="files/:fileId/pdf" element={<PdfDesignerPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="access-requests" element={<AccessRequestsPage />} />
           <Route path="audit" element={<RequireRole roles={['master', 'admin']}><AuditPage /></RequireRole>} />

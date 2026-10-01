@@ -9,6 +9,7 @@ import { mapFile, mapSheet } from '../shared/mappers';
 import { LV, PermCtx, requireFile, requireFolder } from '../shared/permissions';
 import { sheetInput } from '../shared/schemas';
 import { assertUniqueNames, insertColumn } from '../services/structure';
+import { parseTemplates, remapTemplates, sheetsOfFile } from '../services/pdfTemplates';
 import { FILES_SQL, favoriteSet } from './folders';
 
 const router = Router();
@@ -227,6 +228,12 @@ router.post(
       );
       const sheets = await q(`SELECT sheet_id FROM Sheets WHERE file_id = @f AND is_deleted = 0 ORDER BY sort_order`, { f: T.uuid(id) }, tx);
       for (const [i, s] of sheets.entries()) await copySheet(tx, s.sheet_id, f!.file_id, i, u.id, body.includeData);
+      // PDF layouts travel with the file
+      const tpls = parseTemplates(file.pdf_templates);
+      if (tpls.length) {
+        const mapped = remapTemplates(tpls, await sheetsOfFile(id, tx), await sheetsOfFile(f!.file_id, tx), false);
+        await q(`UPDATE Files SET pdf_templates = @t WHERE file_id = @f`, { t: T.text(JSON.stringify(mapped)), f: T.uuid(f!.file_id) }, tx);
+      }
       await audit({ userId: u.id, action: 'file_duplicate', entityType: 'file', entityId: f!.file_id, fileId: f!.file_id,
         newValue: { sourceFileId: id, includeData: body.includeData } }, req, tx);
       return f!.file_id as string;

@@ -210,3 +210,9 @@ export const publicShareApi = {
   sheet: (token: string, sheetId: string) => get<{ sheet: Sheet; columns: Column[] }>(`/public/share/${token}/sheets/${sheetId}`),
   rows: (token: string, sheetId: string, b: { page: number; pageSize: number; search?: string; sorts?: SortSpec[] }) => post<RowPage>(`/public/share/${token}/sheets/${sheetId}/rows`, b),
 };
+
+export const pdfApi = {
+  get: (fileId: string) => get<{ templates: any[]; canEdit: boolean }>(`/files/${fileId}/pdf-templates`),
+  save: (fileId: string, templates: any[]) => put(`/files/${fileId}/pdf-templates`, { templates }),
+  copyFrom: (fileId: string, sourceFileId: string, templateIds?: string[]) => post<{ templates: any[] }>(`/files/${fileId}/pdf-templates/copy-from`, { sourceFileId, templateIds }),
+};

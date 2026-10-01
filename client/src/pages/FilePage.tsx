@@ -5,7 +5,8 @@ import {
   ChevronRight, Columns3, Copy, Download, Expand, History, Lock, MoreHorizontal, Pencil, Pin, PinOff, Plus, Redo2, RotateCcw, Search, Share2, Shrink, Trash2, Undo2, Upload, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { apiError } from '@/api/client';
-import { filesApi, requestsApi, rowsApi } from '@/api/endpoints';
+import { filesApi, pdfApi, requestsApi, rowsApi } from '@/api/endpoints';
+import { defaultTemplate, PdfTemplate } from '@/lib/pdf/types';
 import { ColumnManagerModal } from '@/components/builder/ColumnManagerModal';
 import { DuplicateDialog, MetaModal, RequestAccessForm, ShareDialog } from '@/components/files/Dialogs';
 import { FileGlyph } from '@/components/files/icons';
@@ -121,6 +122,26 @@ export default function FilePage() {
     } catch (e) { toast.error(e); }
   };
   const exportCsv = () => exportRows('csv');
+  const [pdfTpls, setPdfTpls] = useState<PdfTemplate[] | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  useEffect(() => { if (exportMenu && !pdfTpls) pdfApi.get(id).then((r) => setPdfTpls(r.templates as PdfTemplate[])).catch(() => setPdfTpls([])); }, [exportMenu]); // eslint-disable-line react-hooks/exhaustive-deps
+  const exportPdf = async (t: PdfTemplate | null) => {
+    if (!sheetId || !view.detail) return;
+    setPdfBusy(true);
+    const tid = toast.info('กำลังสร้าง PDF…', 'ไฟล์ใหญ่อาจใช้เวลาสักครู่');
+    void tid;
+    try {
+      const { generatePdf } = await import('@/lib/pdf/build');
+      const tpl = t ?? defaultTemplate(file.data?.file.name ?? 'export', { id: sheetId, name: view.detail.sheet.name, columns: view.columns });
+      const { blob, truncated } = await generatePdf(tpl, {
+        fileName: file.data?.file.name ?? '', user: useAuth.getState().user?.displayName ?? '',
+        current: { sheetId, filters: view.query.filters, sorts: view.query.sorts, search: view.query.search || undefined, selectedRowIds: selRows },
+      });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${file.data?.file.name ?? 'export'} - ${view.detail.sheet.name}${t ? ` - ${t.name}` : ''}.pdf`; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      toast.success('สร้าง PDF แล้ว', truncated ? 'ส่งออกเฉพาะ 50,000 แถวแรก' : undefined);
+    } catch (e) { toast.error((e as Error).message || 'สร้าง PDF ไม่สำเร็จ'); } finally { setPdfBusy(false); }
+  };
   const deleteRows = async (ids: string[]) => {
     if (await confirmDialog({ title: `ลบ ${ids.length} แถว?`, message: 'แถวจะถูกย้ายไปถังขยะของชีตและกู้คืนได้', danger: true, confirmText: 'ลบ' })) await view.deleteRows(ids);
   };
@@ -154,7 +175,7 @@ export default function FilePage() {
         <IconButton ref={moreBtn} label="ตัวเลือกไฟล์" onClick={() => setMore(true)}><MoreHorizontal className="h-5 w-5" /></IconButton>
         <Popover open={more} onClose={() => setMore(false)} anchor={moreBtn.current} placement="bottom-end" width={240}>
           <MenuList onClose={() => setMore(false)} items={[
-            ...(canManage ? [{ label: 'เปลี่ยนชื่อ / สี', icon: <Pencil />, onClick: () => setModal('rename') }] : []),
+            ...(canManage ? [{ label: 'เปลี่ยนชื่อ / สี', icon: <Pencil />, onClick: () => setModal('rename') }, { label: 'ออกแบบรูปแบบ PDF', icon: <Download />, onClick: () => nav(`/files/${f.id}/pdf`) }] : []),
             ...(!isBasicRole(role) ? [{ label: 'ทำสำเนาไฟล์', icon: <Copy />, onClick: () => setModal('dup') }] : []),
             ...(canManage ? [{ label: 'ประวัติการแก้ไขของไฟล์', icon: <History />, onClick: () => nav(`/audit?fileId=${f.id}`) }] : []),
             { label: 'ส่งออก Excel (.xlsx)', icon: <Download />, onClick: () => void exportRows('xlsx') },
@@ -200,10 +221,16 @@ export default function FilePage() {
                 {canWrite && <IconButton label="แถวที่ถูกลบ" onClick={() => setModal('trash')}><Trash2 className="h-4 w-4" /></IconButton>}
                 {role === 'admin' && <IconButton label="ย้อนข้อมูลทั้งชีต" onClick={() => setModal('rollback')}><RotateCcw className="h-4 w-4" /></IconButton>}
                 <IconButton ref={exportBtn} label="ส่งออกไฟล์" onClick={() => setExportMenu(true)}><Download className="h-4 w-4" /></IconButton>
-                <Popover open={exportMenu} onClose={() => setExportMenu(false)} anchor={exportBtn.current} placement="bottom-end" width={220}>
+                <Popover open={exportMenu} onClose={() => setExportMenu(false)} anchor={exportBtn.current} placement="bottom-end" width={280}>
                   <MenuList onClose={() => setExportMenu(false)} items={[
                     { label: 'Excel (.xlsx)', icon: <Download />, onClick: () => void exportRows('xlsx') },
                     { label: 'CSV (.csv)', icon: <Download />, onClick: () => void exportRows('csv') },
+                    { divider: true },
+                    ...(pdfTpls === null ? [{ label: 'กำลังโหลดรูปแบบ PDF…', disabled: true }] : [
+                      { label: 'PDF — รายงานมาตรฐาน', icon: <Download />, disabled: pdfBusy, onClick: () => void exportPdf(null) },
+                      ...pdfTpls.map((t) => ({ label: `PDF — ${t.name}${t.mode === 'perRow' ? ' (ฟอร์มต่อแถว)' : ''}`, icon: <Download />, disabled: pdfBusy, onClick: () => void exportPdf(t) })),
+                    ]),
+                    ...(canManage ? [{ divider: true }, { label: 'ออกแบบรูปแบบ PDF…', icon: <Pencil />, onClick: () => nav(`/files/${id}/pdf`) }] : []),
                   ]} />
                 </Popover>
                 <div className="mx-1 h-6 w-px bg-line" />
