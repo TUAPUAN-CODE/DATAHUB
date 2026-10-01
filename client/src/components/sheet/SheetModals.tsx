@@ -13,6 +13,7 @@ import { Avatar, EmptyState, Skeleton } from '../ui/misc';
 import { Modal } from '../ui/Modal';
 import { FieldInput } from './FieldInput';
 import { ImageGallery, toUrls } from './ImageCell';
+import { dependentsOf } from '@/lib/lookup';
 
 const SOURCE: Record<string, string> = { edit: 'แก้ไข', create: 'สร้าง', paste: 'วาง', rollback: 'ย้อนค่า', type_change: 'แปลงชนิด', undo: 'ย้อนกลับ', fill: 'เติม' };
 
@@ -33,6 +34,12 @@ export function RowFormModal({ open, onClose, columns, row, users, canWrite, onC
   };
   useEffect(() => { if (open) init(); }, [open, row?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Changing a column clears the dependent drop-downs (their options were filtered by the old value) */
+  const withDependentsCleared = (colId: string, v: CellValue) => {
+    const next = { ...values, [colId]: v };
+    for (const d of dependentsOf(colId, columns)) if (!d.isRequired) next[d.id] = null;
+    return next;
+  };
   const empty = (v: CellValue) => v === null || v === '' || (Array.isArray(v) && !v.length);
   const submit = async () => {
     const errs: Record<string, string> = {};
@@ -69,7 +76,7 @@ export function RowFormModal({ open, onClose, columns, row, users, canWrite, onC
         {columns.map((c, i) => (
           <Field key={c.id} label={c.name} required={c.isRequired} error={errors[c.id]} className={cn((c.dataType === 'text' || c.dataType === 'multi_select' || c.dataType === 'image') && 'sm:col-span-2')}
             hint={row?.meta[c.id] ? `แก้ไขล่าสุด ${users[row.meta[c.id].by]?.name ?? ''} · ${relTime(row.meta[c.id].at)}` : c.description ?? undefined}>
-            {canWrite ? <FieldInput col={c} value={values[c.id]} onChange={(v) => setValues({ ...values, [c.id]: v })} invalid={!!errors[c.id]} autoFocus={i === 0} />
+            {canWrite ? <FieldInput col={c} value={values[c.id]} rowValues={values} onChange={(v) => setValues(withDependentsCleared(c.id, v))} invalid={!!errors[c.id]} autoFocus={i === 0} />
               : c.dataType === 'image' ? <ImageGallery urls={toUrls(values[c.id])} />
               : <div className="min-h-10 rounded-xl bg-ink/[.03] px-3 py-2.5 text-sm">{displayValue(c, values[c.id] ?? null) || <span className="text-muted">—</span>}</div>}
           </Field>

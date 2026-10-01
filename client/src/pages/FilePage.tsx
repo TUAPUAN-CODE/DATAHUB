@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  ChevronRight, Columns3, Copy, Download, Expand, History, Lock, MoreHorizontal, Pencil, Pin, PinOff, Plus, Redo2, RotateCcw, Search, Share2, Shrink, Trash2, Undo2, ZoomIn, ZoomOut,
+  ChevronRight, Columns3, Copy, Download, Expand, History, Lock, MoreHorizontal, Pencil, Pin, PinOff, Plus, Redo2, RotateCcw, Search, Share2, Shrink, Trash2, Undo2, Upload, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { apiError } from '@/api/client';
 import { filesApi, requestsApi, rowsApi } from '@/api/endpoints';
@@ -12,6 +12,7 @@ import { FileGlyph } from '@/components/files/icons';
 import { ColumnFilterMenu, FilterBar } from '@/components/sheet/ColumnFilterMenu';
 import { SheetTabs } from '@/components/sheet/SheetTabs';
 import { CellHistoryModal, RollbackModal, RowFormModal, RowHistoryModal, SheetTrashModal } from '@/components/sheet/SheetModals';
+import { ImportModal } from '@/components/sheet/ImportModal';
 import { RowViewModal } from '@/components/sheet/RowViewModal';
 import { SpreadsheetGrid } from '@/components/sheet/SpreadsheetGrid';
 import { useSheetView } from '@/components/sheet/useSheetView';
@@ -69,7 +70,7 @@ export default function FilePage() {
   const [rowHist, setRowHist] = useState<Row | null>(null);
   const [selRows, setSelRows] = useState<string[]>([]);
   const [rowView, setRowView] = useState<Row | null>(null);
-  const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'share' | 'rename' | 'dup' | null>(null);
+  const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'import' | 'share' | 'rename' | 'dup' | null>(null);
   const [more, setMore] = useState(false);
   const [freeze, setFreeze] = useState(false);
   const [full, setFull] = useState(false);
@@ -171,6 +172,7 @@ export default function FilePage() {
               <TextInput icon={<Search />} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาในชีต…" className="!h-9 w-full sm:w-64" />
               {canWrite && <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setRowForm({ row: null })}>เพิ่มแถว</Button>}
               {canWrite && selRows.length > 0 && <Button size="sm" variant="secondary" className="!text-danger" icon={<Trash2 className="h-4 w-4" />} onClick={() => void deleteRows(selRows)}>{selRows.length > 1 ? `ลบ ${selRows.length} แถวที่เลือก` : 'ลบแถวที่เลือก'}</Button>}
+              {canWrite && <Button size="sm" variant="secondary" icon={<Upload className="h-4 w-4" />} onClick={() => setModal('import')}>นำเข้า</Button>}
               {canManage && <Button size="sm" variant="secondary" icon={<Columns3 className="h-4 w-4" />} onClick={() => setModal('columns')}>คอลัมน์</Button>}
               <div className="mx-1 hidden h-6 w-px bg-line sm:block" />
               <IconButton label="ย้อนกลับ (Ctrl+Z)" onClick={() => void view.undo()} disabled={!view.canUndo}><Undo2 className="h-4 w-4" /></IconButton>
@@ -239,8 +241,10 @@ export default function FilePage() {
             onEdit={canWrite ? (r) => { setRowView(null); setRowForm({ row: r }); } : undefined} />
           <CellHistoryModal target={cellHist} onClose={() => setCellHist(null)} onChanged={() => void view.loadRows(true)} />
           <RowHistoryModal row={rowHist} columns={view.allColumns} canRollback={canManage} onClose={() => setRowHist(null)} onChanged={() => void view.loadRows(true)} />
-          <ColumnManagerModal open={modal === 'columns'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.detail.columns} deleted={view.detail.deletedColumns}
+          <ColumnManagerModal open={modal === 'columns'} onClose={() => setModal(null)} sheetId={sheetId} fileId={f.id} fileName={f.name} columns={view.detail.columns} deleted={view.detail.deletedColumns}
             onSaved={() => { void view.loadDetail(); void view.loadRows(true); }} />
+          <ImportModal open={modal === 'import'} onClose={() => setModal(null)} sheetId={sheetId} sheetName={view.detail.sheet.name} fileName={f.name} columns={view.detail.columns}
+            onDone={() => void view.loadRows(true)} />
           <SheetTrashModal open={modal === 'trash'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.allColumns} onRestored={() => void view.loadRows(true)} />
           <RollbackModal open={modal === 'rollback'} onClose={() => setModal(null)} sheetId={sheetId} sheetName={view.detail.sheet.name} onDone={() => void view.loadRows(true)} />
         </>

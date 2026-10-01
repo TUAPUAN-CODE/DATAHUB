@@ -9,6 +9,7 @@ import { LV, requireSheet } from '../shared/permissions';
 import { checkColumnInput, columnInput } from '../shared/schemas';
 import { writeCell } from '../services/cellWriter';
 import { insertColumn } from '../services/structure';
+import { assertLookupConfig, Lookup } from '../services/lookup';
 import { emitToSheet } from '../socket';
 
 const router = Router();
@@ -33,6 +34,7 @@ router.post(
     const sheetId = pid(req);
     const { sheet } = await requireSheet(req.user!, sheetId, LV.manage);
     const body = parse(columnInput.extend({ insertAt: z.number().int().min(0).optional() }), req.body);
+    if ((body.dataType === 'select' || body.dataType === 'multi_select') && body.validation?.lookup) await assertLookupConfig(req.user!, sheetId, null, body.validation.lookup as Lookup);
     if (await nameTaken(sheetId, body.name)) throw conflict(`มีคอลัมน์ชื่อ "${body.name}" อยู่แล้ว`);
     const row = await withTx(async (tx) => {
       let order: number;
@@ -82,6 +84,8 @@ router.put(
     };
     if (merged.name !== before.column_name && (await nameTaken(before.sheet_id, merged.name, id)))
       throw conflict(`มีคอลัมน์ชื่อ "${merged.name}" อยู่แล้ว`);
+    if ((merged.dataType === 'select' || merged.dataType === 'multi_select') && (merged.validation as any)?.lookup)
+      await assertLookupConfig(req.user!, before.sheet_id, id, (merged.validation as any).lookup as Lookup);
     const checked = checkColumnInput(merged as any);
     const typeChanged = merged.dataType !== before.data_type;
 

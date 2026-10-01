@@ -7,6 +7,8 @@ import { SWATCHES } from '@/lib/format';
 import type { ColumnDraft, DataType, SelectOption } from '@/types';
 import { Checkbox, Field, Select, TextInput } from '../ui/Inputs';
 import { FieldInput } from '../sheet/FieldInput';
+import { LookupEditor } from './LookupEditor';
+import { Segmented, Toggle } from '../ui/Inputs';
 
 function OptionsEditor({ options, onChange }: { options: SelectOption[]; onChange: (o: SelectOption[]) => void }) {
   const [draft, setDraft] = useState('');
@@ -40,17 +42,28 @@ function OptionsEditor({ options, onChange }: { options: SelectOption[]; onChang
 
 const num = (s: string) => (s.trim() === '' ? null : Number(s));
 
-function ColumnDetails({ c, set }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void }) {
+function ColumnDetails({ c, set, siblings, fileId, fileName }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string }) {
   const v = c.validation ?? {};
   const setV = (p: Record<string, unknown>) => set({ validation: { ...v, ...p } });
+  const isLookup = !!v.lookup;
   return (
     <div className="grid gap-4 border-t border-line bg-ink/[.02] p-4 md:grid-cols-2">
       <Field label="คำอธิบาย (แสดงเป็นคำแนะนำ)"><TextInput value={c.description ?? ''} onChange={(e) => set({ description: e.target.value })} /></Field>
       <Field label="ข้อความตัวอย่างในช่องกรอก"><TextInput value={c.placeholder ?? ''} onChange={(e) => set({ placeholder: e.target.value })} /></Field>
       {isSelect(c.dataType) && (
-        <Field label="ตัวเลือก" className="md:col-span-2" hint="กดวงกลมเพื่อเปลี่ยนสีของแต่ละตัวเลือก">
-          <OptionsEditor options={c.options ?? []} onChange={(options) => set({ options })} />
-        </Field>
+        <div className="space-y-3 md:col-span-2">
+          <Segmented size="sm" value={isLookup ? 'lookup' : 'custom'} onChange={(m) => setV({ lookup: m === 'lookup' ? { sheetId: '', columnId: '', parent: null } : null })}
+            options={[{ value: 'custom', label: 'กำหนดตัวเลือกเอง' }, { value: 'lookup', label: 'ดึงจากตารางอื่น (Relationship)' }]} />
+          {isLookup && v.lookup ? (
+            <LookupEditor lookup={v.lookup} onChange={(lookup) => setV({ lookup })} siblings={siblings} selfKey={c.key} fileId={fileId} fileName={fileName} />
+          ) : (
+            <Field label="ตัวเลือก" hint="กดวงกลมเพื่อเปลี่ยนสีของแต่ละตัวเลือก">
+              <OptionsEditor options={c.options ?? []} onChange={(options) => set({ options })} />
+            </Field>
+          )}
+          <Toggle checked={v.allowEmpty !== false && !c.isRequired} disabled={c.isRequired} onChange={(x) => setV({ allowEmpty: x })}
+            label={<span>มีตัวเลือก “— ไม่ระบุ —” {c.isRequired && <span className="text-xs text-muted">(คอลัมน์บังคับกรอกจะไม่มีตัวเลือกนี้)</span>}</span>} />
+        </div>
       )}
       {isNumeric(c.dataType) && (
         <>
@@ -82,6 +95,8 @@ function ColumnDetails({ c, set }: { c: ColumnDraft; set: (p: Partial<ColumnDraf
   );
 }
 
+const lookupDone = (c: ColumnDraft) => !!c.validation?.lookup?.sheetId && !!c.validation.lookup.columnId && (!c.validation.lookup.parent || (!!c.validation.lookup.parent.localColumnId && !!c.validation.lookup.parent.foreignColumnId));
+
 export function validateDrafts(cols: ColumnDraft[]): string | null {
   if (!cols.length) return 'ต้องมีอย่างน้อย 1 คอลัมน์';
   const seen = new Set<string>();
@@ -90,7 +105,8 @@ export function validateDrafts(cols: ColumnDraft[]): string | null {
     if (!n) return `คอลัมน์ที่ ${i + 1} ยังไม่มีชื่อ`;
     if (seen.has(n.toLowerCase())) return `ชื่อคอลัมน์ "${n}" ซ้ำกัน`;
     seen.add(n.toLowerCase());
-    if (isSelect(c.dataType) && !(c.options ?? []).length) return `คอลัมน์ "${n}" ต้องมีตัวเลือกอย่างน้อย 1 รายการ`;
+    if (isSelect(c.dataType) && c.validation?.lookup) { if (!lookupDone(c)) return `คอลัมน์ "${n}": เลือกตารางและคอลัมน์ต้นทางของ Relationship ให้ครบ`; }
+    else if (isSelect(c.dataType) && !(c.options ?? []).length) return `คอลัมน์ "${n}" ต้องมีตัวเลือกอย่างน้อย 1 รายการ`;
   }
   return null;
 }
@@ -99,10 +115,10 @@ export const draftToPayload = (c: ColumnDraft) => ({
   name: c.name.trim(), dataType: c.dataType, isRequired: c.isRequired, width: c.width,
   defaultValue: c.defaultValue === '' ? null : c.defaultValue ?? null, placeholder: c.placeholder || null, description: c.description || null,
   validation: c.validation && Object.values(c.validation).some((x) => x !== null && x !== undefined && x !== '') ? c.validation : null,
-  options: isSelect(c.dataType) ? (c.options ?? []).map((o) => ({ ...o, label: o.label.trim() || o.value })) : null,
+  options: isSelect(c.dataType) && !c.validation?.lookup ? (c.options ?? []).map((o) => ({ ...o, label: o.label.trim() || o.value })) : null,
 });
 
-export function ColumnEditor({ columns, onChange, lockedTypes }: { columns: ColumnDraft[]; onChange: (c: ColumnDraft[]) => void; lockedTypes?: boolean }) {
+export function ColumnEditor({ columns, onChange, lockedTypes, fileId, fileName }: { columns: ColumnDraft[]; onChange: (c: ColumnDraft[]) => void; lockedTypes?: boolean; fileId?: string; fileName?: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const set = (key: string, p: Partial<ColumnDraft>) => onChange(columns.map((c) => (c.key === key ? { ...c, ...p } : c)));
@@ -166,7 +182,7 @@ export function ColumnEditor({ columns, onChange, lockedTypes }: { columns: Colu
             <AnimatePresence initial={false}>
               {open === c.key && (
                 <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
-                  <ColumnDetails c={c} set={(p) => set(c.key, p)} />
+                  <ColumnDetails c={c} set={(p) => set(c.key, p)} siblings={columns} fileId={fileId} fileName={fileName} />
                 </motion.div>
               )}
             </AnimatePresence>

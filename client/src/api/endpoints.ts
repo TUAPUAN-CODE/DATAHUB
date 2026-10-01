@@ -70,12 +70,17 @@ export const columnsApi = {
 export interface RowQueryBody { page: number; pageSize: number; sorts: SortSpec[]; filters: ColumnFilter[]; search?: string }
 export interface RowPage { rows: Row[]; total: number; page: number; pageSize: number; users: UsersDict }
 export interface CellVersion { id: number; oldValue: CellValue; newValue: CellValue; source: string; by: string; byName: string; avatarUrl: string | null; at: string; version: number }
+export interface ImportResult { inserted: number; valid: number; invalid: number; skippedEmpty: number; errors: { rowNo: number; columnId: string; columnName: string; message: string }[] }
 export const rowsApi = {
   query: (sheetId: string, b: RowQueryBody) => post<RowPage>(`/sheets/${sheetId}/rows/query`, b),
   distinct: (sheetId: string, b: { columnId: string; filters: ColumnFilter[]; search?: string; valueSearch?: string; limit?: number }) =>
     post<{ items: { value: any; count: number }[]; blankCount: number; truncated: boolean }>(`/sheets/${sheetId}/distinct`, b),
   create: (sheetId: string, values: Record<string, CellValue>) => post<{ row: Row; users: UsersDict }>(`/sheets/${sheetId}/rows`, { values }),
   remove: (rowId: string) => del(`/rows/${rowId}`),
+  lookupOptions: (sheetId: string, b: { columnId: string; parentValue?: string | null; search?: string }) =>
+    post<{ options: string[]; needsParent: boolean }>(`/sheets/${sheetId}/lookup-options`, b),
+  importRows: (sheetId: string, b: { rows: { rowNo: number; values: Record<string, unknown> }[]; skipInvalid?: boolean; dryRun?: boolean }) =>
+    post<ImportResult>(`/sheets/${sheetId}/rows/import`, b),
   removeMany: (sheetId: string, rowIds: string[]) => post(`/sheets/${sheetId}/rows/delete`, { rowIds }),
   trash: (sheetId: string) => get<{ rows: Row[]; users: UsersDict }>(`/sheets/${sheetId}/trash`),
   restore: (sheetId: string, rowIds: string[]) => post<{ restored: number }>(`/sheets/${sheetId}/rows/restore`, { rowIds }),

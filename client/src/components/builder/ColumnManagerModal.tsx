@@ -15,8 +15,8 @@ const toDraft = (c: Column): ColumnDraft => ({
   placeholder: c.placeholder, description: c.description, validation: c.validation ?? {}, options: c.options,
 });
 
-export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, onSaved }: {
-  open: boolean; onClose: () => void; sheetId: string; columns: Column[]; deleted: Column[]; onSaved: () => void;
+export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, onSaved, fileId, fileName }: {
+  open: boolean; onClose: () => void; sheetId: string; fileId?: string; fileName?: string; columns: Column[]; deleted: Column[]; onSaved: () => void;
 }) {
   const [drafts, setDrafts] = useState<ColumnDraft[]>([]);
   const [busy, setBusy] = useState(false);
@@ -75,7 +75,7 @@ export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, o
     <Modal open={open} onClose={onClose} size="xl" icon={<Columns3 className="h-5 w-5" />} title="จัดการคอลัมน์" description="กำหนดชื่อ ชนิดข้อมูล การบังคับกรอก และกฎตรวจสอบของแต่ละคอลัมน์"
       footer={<><Button variant="secondary" onClick={onClose}>ยกเลิก</Button><Button onClick={save} loading={busy}>บันทึกการเปลี่ยนแปลง</Button></>}>
       <div className="max-h-[62vh] overflow-y-auto pr-1">
-        <ColumnEditor columns={drafts} onChange={setDrafts} />
+        <ColumnEditor columns={drafts} onChange={setDrafts} fileId={fileId} fileName={fileName} />
         {deleted.length > 0 && (
           <div className="mt-6">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">คอลัมน์ที่ถูกลบ</p>

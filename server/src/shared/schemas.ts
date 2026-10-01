@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DATA_TYPES, normalizeValue, ColumnDef, SelectOption } from './cellValue';
-import { badRequest, zColor } from './http';
+import { badRequest, zColor, zId } from './http';
 
 export const optionSchema = z.object({
   value: z.string().trim().min(1).max(200),
@@ -19,6 +19,14 @@ export const validationSchema = z
     minDate: z.string().max(30).nullish(),
     maxDate: z.string().max(30).nullish(),
     maxSelections: z.number().int().min(1).max(500).nullish(),
+    allowEmpty: z.boolean().nullish(),
+    lookup: z
+      .object({
+        sheetId: zId,
+        columnId: zId,
+        parent: z.object({ localColumnId: zId, foreignColumnId: zId }).nullish(),
+      })
+      .nullish(),
   })
   .partial();
 
@@ -79,8 +87,9 @@ export const sortSchema = z.object({
  */
 export function checkColumnInput(input: ColumnInput) {
   const isSelect = input.dataType === 'select' || input.dataType === 'multi_select';
+  const hasLookup = isSelect && !!input.validation?.lookup;
   let options: SelectOption[] = [];
-  if (isSelect) {
+  if (isSelect && !hasLookup) {
     options = (input.options ?? []).map((o) => ({ value: o.value, label: o.label, color: o.color ?? null }));
     if (!options.length) throw badRequest(`คอลัมน์ "${input.name}" ต้องมีตัวเลือกอย่างน้อย 1 รายการ`);
     const seen = new Set<string>();
@@ -101,7 +110,7 @@ export function checkColumnInput(input: ColumnInput) {
     throw badRequest(`ค่าต่ำสุดต้องไม่มากกว่าค่าสูงสุด ในคอลัมน์ "${input.name}"`);
 
   let defaultValue: unknown = null;
-  if (input.defaultValue !== undefined && input.defaultValue !== null && input.defaultValue !== '') {
+  if (!hasLookup && input.defaultValue !== undefined && input.defaultValue !== null && input.defaultValue !== '') {
     const def: ColumnDef = {
       column_id: '',
       column_name: input.name,

@@ -28,7 +28,12 @@ export interface SelectOption { value: string; label: string; color?: string | n
 export interface Validation {
   min?: number | null; max?: number | null; decimals?: number | null; maxLength?: number | null; pattern?: string | null;
   patternMessage?: string | null; minDate?: string | null; maxDate?: string | null; maxSelections?: number | null;
+  /** select columns: offer the "— ไม่ระบุ —" choice (default true, never for required columns) */
+  allowEmpty?: boolean | null;
+  /** options come from a column of another sheet; `parent` limits them to rows matching a value in this row */
+  lookup?: Lookup | null;
 }
+export interface Lookup { sheetId: string; columnId: string; parent?: { localColumnId: string; foreignColumnId: string } | null }
 export type CellValue = string | number | boolean | string[] | null;
 
 export interface Column {

@@ -6,6 +6,7 @@ import {
 import { cn } from '@/lib/cn';
 import { parseTsv, toTsv } from '@/lib/csv';
 import { TYPE_META } from '@/lib/columnTypes';
+import { dependentsOf } from '@/lib/lookup';
 import { displayValue, fmtNumber, relTime } from '@/lib/format';
 import { toast } from '@/store/ui';
 import type { CellValue, Column, Row } from '@/types';
@@ -131,7 +132,12 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
     setEditing(null);
     if (row && col) {
       const cur = row.values[col.id] ?? null;
-      if (JSON.stringify(cur) !== JSON.stringify(value ?? null)) void commit([{ rowId: row.id, columnId: col.id, value }]);
+      if (JSON.stringify(cur) !== JSON.stringify(value ?? null)) {
+        const changes: CellChange[] = [{ rowId: row.id, columnId: col.id, value }];
+        // a dependent drop-down (relationship) is cleared when its parent changes
+        for (const d of dependentsOf(col.id, cols)) if (!d.isRequired && row.values[d.id] != null) changes.push({ rowId: row.id, columnId: d.id, value: null });
+        void commit(changes);
+      }
     }
     if (mv === 'down') move(1, 0);
     else if (mv === 'up') move(-1, 0);
@@ -428,7 +434,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                           <div className={col.dataType === 'image' ? 'h-full min-w-0 flex-1 overflow-hidden' : 'min-w-0 flex-1 truncate'}><CellDisplay col={col} value={v} /></div>
                         </div>
                         {isEdit && (
-                          <CellEditor col={col} value={v} initial={editing?.initial}
+                          <CellEditor col={col} value={v} rowValues={row.values} initial={editing?.initial}
                             anchor={tableRef.current?.querySelector<HTMLElement>(`[data-cell="${ri}:${ci}"]`) ?? null}
                             onCommit={finishEdit} onCancel={() => { setEditing(null); requestAnimationFrame(focusGrid); }} />
                         )}

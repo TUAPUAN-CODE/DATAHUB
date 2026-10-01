@@ -95,7 +95,7 @@ export const ACTION_LABEL: Record<string, string> = {
   file_restore: 'กู้คืนไฟล์', file_purge: 'ลบไฟล์ถาวร',
   sheet_create: 'สร้างชีต', sheet_update: 'แก้ไขชีต', sheet_delete: 'ลบชีต', sheet_rollback: 'ย้อนข้อมูลทั้งชีต',
   column_create: 'เพิ่มคอลัมน์', column_update: 'แก้ไขคอลัมน์', column_delete: 'ลบคอลัมน์', column_restore: 'กู้คืนคอลัมน์',
-  row_create: 'เพิ่มแถว', row_delete: 'ลบแถว', row_restore: 'กู้คืนแถว', row_rollback: 'ย้อนข้อมูลแถว',
+  row_create: 'เพิ่มแถว', rows_import: 'นำเข้าข้อมูลจากไฟล์', row_delete: 'ลบแถว', row_restore: 'กู้คืนแถว', row_rollback: 'ย้อนข้อมูลแถว',
   cell_update: 'แก้ไขเซลล์', cell_rollback: 'ย้อนค่าเซลล์',
   access_grant: 'ให้สิทธิ์', access_revoke: 'ถอนสิทธิ์', access_request: 'ขอสิทธิ์', access_approve: 'อนุมัติสิทธิ์', access_reject: 'ปฏิเสธคำขอ',
   dashboard_create: 'สร้างแดชบอร์ด', dashboard_update: 'แก้ไขแดชบอร์ด', dashboard_delete: 'ลบแดชบอร์ด',

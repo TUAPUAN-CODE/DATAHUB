@@ -2,13 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { idList, jsonParam, q, q1, T, withTx } from '../config/db';
 import { audit, auditMany } from '../shared/audit';
-import { CellValue, normalizeValue, toColumnDef } from '../shared/cellValue';
+import crypto from 'crypto';
+import { CellValue, normalizeValue, toColumnDef, toStorage } from '../shared/cellValue';
 import { ah, badRequest, forbidden, notFound, ok, parse, pid, reqMeta, safeJson, zId } from '../shared/http';
 import { LV, requireSheet } from '../shared/permissions';
 import { filterSchema, sortSchema } from '../shared/schemas';
 import { loadColumns, writeCell } from '../services/cellWriter';
 import { applyRollback, planRollback } from '../services/rollback';
 import { distinctValues, hydrateRows, queryRows, userNames } from '../services/rowQuery';
+import { lookupResolver, lookupValues, getLookup, normalizeWithLookup, parentValueOf } from '../services/lookup';
 import { emitToSheet } from '../socket';
 
 const router = Router();
@@ -63,10 +65,12 @@ router.post(
     const lowered = Object.fromEntries(Object.entries(values).map(([k, v]) => [k.toLowerCase(), v]));
     const fieldErrors: Record<string, string> = {};
     const toWrite: { col: ReturnType<typeof toColumnDef>; value: CellValue }[] = [];
+    const resolve = lookupResolver();
+    const rawAll: Record<string, unknown> = Object.fromEntries(cols.map((c) => [c.column_id, c.column_id in lowered ? lowered[c.column_id] : safeJson(c.default_value, null)]));
     for (const c of cols) {
       const def = toColumnDef(c);
-      const raw = c.column_id in lowered ? lowered[c.column_id] : safeJson(c.default_value, null);
-      const n = normalizeValue(def, raw);
+      const raw = rawAll[c.column_id];
+      const n = await normalizeWithLookup(def, raw, await parentValueOf(def, rawAll), resolve);
       if (!n.ok) fieldErrors[c.column_id] = n.error;
       else if (n.value !== null) toWrite.push({ col: def, value: n.value });
     }
@@ -89,6 +93,99 @@ router.post(
     const { rows, userIds } = await hydrateRows(rec, cols);
     emitToSheet(sheetId, 'rows:changed', { sheetId, action: 'create', rowId, by: u.displayName }, reqMeta(req).socketId);
     ok(res, { row: rows[0], users: await userNames(userIds) }, 201);
+  }),
+);
+
+/** Options of a relationship column (distinct values of another sheet's column, optionally for one parent value) */
+router.post(
+  '/sheets/:id/lookup-options',
+  ah(async (req, res) => {
+    const sheetId = pid(req);
+    await requireSheet(req.user!, sheetId, LV.read);
+    const body = parse(z.object({ columnId: zId, parentValue: z.string().max(500).nullish(), search: z.string().max(200).optional() }), req.body);
+    const cols = await loadColumns(sheetId);
+    const col = cols.find((c) => c.column_id === body.columnId);
+    const l = col ? getLookup(toColumnDef(col)) : null;
+    if (!l) throw badRequest('คอลัมน์นี้ไม่ได้ดึงตัวเลือกจากตารางอื่น');
+    // The list is read with the server's rights on purpose: writers may pick a value without having read access to the source sheet
+    ok(res, { options: await lookupValues(l, body.parentValue ?? null, body.search), needsParent: !!l.parent });
+  }),
+);
+
+/** Bulk insert of rows (file import). `dryRun` only validates. */
+router.post(
+  '/sheets/:id/rows/import',
+  ah(async (req, res) => {
+    const sheetId = pid(req);
+    const u = req.user!;
+    const { sheet } = await requireSheet(u, sheetId, LV.write);
+    const body = parse(
+      z.object({
+        rows: z.array(z.object({ rowNo: z.number().int().min(0), values: z.record(z.any()) })).min(1).max(500),
+        skipInvalid: z.boolean().default(false),
+        dryRun: z.boolean().default(false),
+      }),
+      req.body,
+    );
+    const cols = await loadColumns(sheetId);
+    const defs = cols.map((c) => ({ c, def: toColumnDef(c) }));
+    const resolve = lookupResolver();
+    const errors: { rowNo: number; columnId: string; columnName: string; message: string }[] = [];
+    const valid: { rowNo: number; cells: { def: ReturnType<typeof toColumnDef>; value: CellValue }[] }[] = [];
+    let skippedEmpty = 0;
+    for (const r of body.rows) {
+      const lowered = Object.fromEntries(Object.entries(r.values).map(([k, v]) => [k.toLowerCase(), v]));
+      if (!Object.values(lowered).some((v) => !(v === null || v === undefined || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && !v.length)))) { skippedEmpty++; continue; }
+      const rawAll: Record<string, unknown> = Object.fromEntries(defs.map(({ c }) => [c.column_id, c.column_id in lowered ? lowered[c.column_id] : safeJson(c.default_value, null)]));
+      const cells: { def: ReturnType<typeof toColumnDef>; value: CellValue }[] = [];
+      let bad = false;
+      for (const { def } of defs) {
+        const n = await normalizeWithLookup(def, rawAll[def.column_id], await parentValueOf(def, rawAll), resolve);
+        if (!n.ok) { bad = true; errors.push({ rowNo: r.rowNo, columnId: def.column_id, columnName: def.column_name, message: n.error }); }
+        else if (n.value !== null) cells.push({ def, value: n.value });
+      }
+      if (!bad) valid.push({ rowNo: r.rowNo, cells });
+    }
+    const failedRows = new Set(errors.map((e) => e.rowNo)).size;
+    if (body.dryRun || (errors.length && !body.skipInvalid) || !valid.length)
+      return ok(res, { inserted: 0, valid: valid.length, invalid: failedRows, skippedEmpty, errors: errors.slice(0, 200) });
+
+    await withTx(async (tx) => {
+      const o = await q1(`SELECT ISNULL(MAX(row_order), 0) AS o FROM Rows WITH (UPDLOCK, HOLDLOCK) WHERE sheet_id = @s`, { s: T.uuid(sheetId) }, tx);
+      const start = Number(o?.o ?? 0);
+      const rowsJson: { row_id: string; ord: number }[] = [];
+      const cellsJson: Record<string, unknown>[] = [];
+      const histJson: Record<string, unknown>[] = [];
+      valid.forEach((v, i) => {
+        const rowId = crypto.randomUUID();
+        rowsJson.push({ row_id: rowId, ord: start + i + 1 });
+        for (const c of v.cells) {
+          const st = toStorage(c.def.data_type, c.value);
+          const cellId = crypto.randomUUID();
+          cellsJson.push({ cell_id: cellId, row_id: rowId, column_id: c.def.column_id, ...st });
+          histJson.push({ cell_id: cellId, row_id: rowId, column_id: c.def.column_id, nv: JSON.stringify(c.value) });
+        }
+      });
+      await q(`INSERT INTO Rows (row_id, sheet_id, row_order, created_by, updated_by)
+               SELECT row_id, @s, ord, @u, @u FROM OPENJSON(@j) WITH (row_id UNIQUEIDENTIFIER, ord INT)`,
+        { s: T.uuid(sheetId), u: T.uuid(u.id), j: T.text(JSON.stringify(rowsJson)) }, tx);
+      for (let i = 0; i < cellsJson.length; i += 2000) {
+        const chunk = cellsJson.slice(i, i + 2000);
+        await q(`INSERT INTO Cells (cell_id, row_id, column_id, value_text, value_int, value_float, value_date, value_bool, value_json, updated_by)
+                 SELECT cell_id, row_id, column_id, value_text, value_int, value_float, value_date, value_bool, value_json, @u
+                 FROM OPENJSON(@j) WITH (cell_id UNIQUEIDENTIFIER, row_id UNIQUEIDENTIFIER, column_id UNIQUEIDENTIFIER, value_text NVARCHAR(MAX),
+                   value_int BIGINT, value_float FLOAT, value_date DATETIME2, value_bool BIT, value_json NVARCHAR(MAX))`,
+          { u: T.uuid(u.id), j: T.text(JSON.stringify(chunk)) }, tx);
+        await q(`INSERT INTO CellHistory (cell_id, sheet_id, row_id, column_id, old_value, new_value, change_source, changed_by, version_number)
+                 SELECT cell_id, @s, row_id, column_id, NULL, nv, N'import', @u, 1
+                 FROM OPENJSON(@j) WITH (cell_id UNIQUEIDENTIFIER, row_id UNIQUEIDENTIFIER, column_id UNIQUEIDENTIFIER, nv NVARCHAR(MAX))`,
+          { s: T.uuid(sheetId), u: T.uuid(u.id), j: T.text(JSON.stringify(histJson.slice(i, i + 2000))) }, tx);
+      }
+      await audit({ userId: u.id, action: 'rows_import', entityType: 'sheet', entityId: sheetId, fileId: sheet.file_id, sheetId,
+        newValue: { rows: valid.length, firstRowNo: start + 1 } }, req, tx);
+    });
+    emitToSheet(sheetId, 'rows:changed', { sheetId, action: 'import', by: u.displayName }, reqMeta(req).socketId);
+    ok(res, { inserted: valid.length, valid: valid.length, invalid: failedRows, skippedEmpty, errors: errors.slice(0, 200) });
   }),
 );
 

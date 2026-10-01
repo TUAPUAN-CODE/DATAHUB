@@ -14,6 +14,7 @@ import {
 } from '../shared/cellValue';
 import { badRequest, reqMeta } from '../shared/http';
 import { LV, requireSheet } from '../shared/permissions';
+import { getLookup, lookupResolver, normalizeWithLookup } from './lookup';
 import { emitToSheet } from '../socket';
 
 export async function loadColumns(sheetId: string, tx?: Tx | null, includeDeleted = false) {
@@ -159,6 +160,31 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
     : [];
   const rowMap = new Map(rows.map((r) => [r.row_id, r]));
 
+  // Parent values of dependent drop-downs: this batch wins over what is stored
+  const resolve = lookupResolver();
+  const parentCols = new Set<string>();
+  for (const c of colMap.values()) { const l = getLookup(c); if (l?.parent) parentCols.add(l.parent.localColumnId); }
+  const stored = new Map<string, Record<string, unknown>>();
+  if (parentCols.size && rowIds.length) {
+    const cells = await q(
+      `SELECT row_id, column_id, value_text, value_int, value_float, value_date, value_bool, value_json FROM Cells
+       WHERE row_id IN ${idList('@ids')} AND column_id IN ${idList('@cc')}`,
+      { ids: jsonParam(rowIds), cc: jsonParam([...parentCols]) },
+    );
+    for (const c of cells) {
+      const def = colMap.get(c.column_id);
+      if (!def) continue;
+      if (!stored.has(c.row_id)) stored.set(c.row_id, {});
+      stored.get(c.row_id)![c.column_id] = fromStorage(def.data_type, c);
+    }
+  }
+  const batchValues = new Map<string, Record<string, unknown>>();
+  for (const u of updates) {
+    const k = u.rowId.toLowerCase();
+    if (!batchValues.has(k)) batchValues.set(k, {});
+    batchValues.get(k)![u.columnId.toLowerCase()] = u.value;
+  }
+
   const errors: CellError[] = [];
   const valid: { rowId: string; col: ColumnDef; rowNo: number; value: CellValue }[] = [];
   const seen = new Set<string>();
@@ -175,7 +201,10 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
       errors.push({ rowId, columnId, columnName: col.column_name, message: 'ไม่พบแถว (อาจถูกลบแล้ว)' });
       continue;
     }
-    const n = normalizeValue(col, u.value, { skipRequired: opts.skipRequired });
+    const parentVals = { ...(stored.get(rowId) ?? {}), ...(batchValues.get(rowId) ?? {}) };
+    const pl = getLookup(col)?.parent;
+    const pv = pl ? parentVals[pl.localColumnId] : null;
+    const n = await normalizeWithLookup(col, u.value, pv === null || pv === undefined || pv === '' ? null : String(Array.isArray(pv) ? pv[0] : pv), resolve, { skipRequired: opts.skipRequired });
     if (!n.ok) {
       errors.push({ rowId, columnId, rowNo: row.row_order, columnName: col.column_name, message: n.error });
       continue;

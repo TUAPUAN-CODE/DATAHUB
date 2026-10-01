@@ -33,6 +33,10 @@ export interface Validation {
   minDate?: string | null;
   maxDate?: string | null;
   maxSelections?: number | null;
+  /** Show the "— ไม่ระบุ —" choice for select columns (default true; never shown for required columns) */
+  allowEmpty?: boolean | null;
+  /** Options come from a column of another sheet (relationship) instead of a fixed list */
+  lookup?: { sheetId: string; columnId: string; parent?: { localColumnId: string; foreignColumnId: string } | null } | null;
 }
 
 export interface ColumnDef {

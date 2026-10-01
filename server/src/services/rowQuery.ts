@@ -82,7 +82,7 @@ function keyExpr(t: DataType, a: string) {
 }
 
 /** Text representation used for LIKE searches */
-function textExpr(t: DataType, a: string) {
+export function textExpr(t: DataType, a: string) {
   switch (t) {
     case 'int':
       return `CONVERT(NVARCHAR(40), ${a}.value_int)`;
