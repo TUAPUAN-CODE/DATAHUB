@@ -12,6 +12,7 @@ import { FileGlyph } from '@/components/files/icons';
 import { ColumnFilterMenu, FilterBar } from '@/components/sheet/ColumnFilterMenu';
 import { SheetTabs } from '@/components/sheet/SheetTabs';
 import { CellHistoryModal, RollbackModal, RowFormModal, RowHistoryModal, SheetTrashModal } from '@/components/sheet/SheetModals';
+import { RowViewModal } from '@/components/sheet/RowViewModal';
 import { SpreadsheetGrid } from '@/components/sheet/SpreadsheetGrid';
 import { useSheetView } from '@/components/sheet/useSheetView';
 import { Button, IconButton } from '@/components/ui/Button';
@@ -67,6 +68,7 @@ export default function FilePage() {
   const [cellHist, setCellHist] = useState<{ row: Row; col: Column } | null>(null);
   const [rowHist, setRowHist] = useState<Row | null>(null);
   const [selRows, setSelRows] = useState<string[]>([]);
+  const [rowView, setRowView] = useState<Row | null>(null);
   const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'share' | 'rename' | 'dup' | null>(null);
   const [more, setMore] = useState(false);
   const [freeze, setFreeze] = useState(false);
@@ -210,7 +212,7 @@ export default function FilePage() {
                 <div className="space-y-1.5 p-3">{Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-8" />)}</div>
               ) : (
                 <SpreadsheetGrid view={view} canWrite={canWrite} canManage={canManage} onOpenRow={(row) => setRowForm({ row })} onCellHistory={(row, col) => setCellHist({ row, col })}
-                  onRowHistory={setRowHist} onFilterColumn={(colId, el) => setFilterFor({ colId, el })} onColumnSettings={() => setModal('columns')} onDeleteRows={deleteRows} onSelectRows={setSelRows} />
+                  onRowHistory={setRowHist} onFilterColumn={(colId, el) => setFilterFor({ colId, el })} onColumnSettings={() => setModal('columns')} onDeleteRows={deleteRows} onSelectRows={setSelRows} onViewRow={setRowView} />
               )}
               {view.loadingRows && view.rows.length > 0 && <div className="absolute inset-x-0 top-0 h-0.5 animate-pulse bg-primary" />}
             </div>
@@ -233,6 +235,8 @@ export default function FilePage() {
           <RowFormModal open={!!rowForm} onClose={() => setRowForm(null)} columns={view.allColumns} row={rowForm?.row ?? null} users={view.users} canWrite={canWrite}
             onCreate={(values) => view.addRow(values)}
             onSave={(changes) => view.commit(changes.map((c) => ({ ...c, rowId: rowForm!.row!.id })), { partial: true })} />
+          <RowViewModal row={rowView} rows={view.rows} columns={view.columns} users={view.users} onClose={() => setRowView(null)} onNavigate={setRowView}
+            onEdit={canWrite ? (r) => { setRowView(null); setRowForm({ row: r }); } : undefined} />
           <CellHistoryModal target={cellHist} onClose={() => setCellHist(null)} onChanged={() => void view.loadRows(true)} />
           <RowHistoryModal row={rowHist} columns={view.allColumns} canRollback={canManage} onClose={() => setRowHist(null)} onChanged={() => void view.loadRows(true)} />
           <ColumnManagerModal open={modal === 'columns'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.detail.columns} deleted={view.detail.deletedColumns}

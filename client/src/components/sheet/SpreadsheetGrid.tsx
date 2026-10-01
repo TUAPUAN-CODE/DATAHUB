@@ -1,6 +1,6 @@
 import { ClipboardEvent, KeyboardEvent, MouseEvent as RMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDownAZ, ArrowUpAZ, ChevronDown, ClipboardPaste, Copy, Eraser, EyeOff, Filter, History, Maximize2, MoveHorizontal,
+  ArrowDownAZ, ArrowUpAZ, ChevronDown, ClipboardPaste, Copy, Eraser, Eye, EyeOff, Filter, History, Maximize2, MoveHorizontal,
   Pin, PinOff, Settings2, SquarePen, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -26,12 +26,14 @@ interface Props {
   onDeleteRows: (ids: string[]) => void;
   /** Ids of the rows touched by the current selection (drives the toolbar delete button) */
   onSelectRows?: (ids: string[]) => void;
+  /** Opens the read-only full detail of a row (eye icon) */
+  onViewRow?: (row: Row) => void;
 }
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 const EDIT_INLINE_TYPED = new Set(['varchar', 'text', 'int', 'float', 'url', 'email']);
 
-export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHistory, onRowHistory, onFilterColumn, onColumnSettings, onDeleteRows, onSelectRows }: Props) {
+export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHistory, onRowHistory, onFilterColumn, onColumnSettings, onDeleteRows, onSelectRows, onViewRow }: Props) {
   const { columns: cols, rows, prefs, setPrefs, query, setQuery, commit, users, flash } = view;
   const scrollRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -250,7 +252,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
     if (!ctx) return;
     ctx.font = `13px ${getComputedStyle(document.body).fontFamily}`;
     let w = ctx.measureText(col.name).width + 64;
-    rows.forEach((r) => { w = Math.max(w, ctx.measureText(displayValue(col, r.values[col.id] ?? null)).width + (col.dataType === 'select' || col.dataType === 'multi_select' ? 40 : 24)); });
+    rows.forEach((r) => { w = Math.max(w, col.dataType === 'image' ? 180 : ctx.measureText(displayValue(col, r.values[col.id] ?? null)).width + (col.dataType === 'select' || col.dataType === 'multi_select' ? 40 : 24)); });
     setPrefs((p) => ({ colWidths: { ...p.colWidths, [col.id]: Math.round(Math.min(600, Math.max(60, w))) } }));
   };
 
@@ -382,8 +384,12 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                     style={{ position: 'sticky', left: 0, top: frow ? tops[ri] : undefined, zIndex: frow ? 16 : 11, fontSize: '0.85em' }}
                     onClick={() => cols.length && setSel({ a: { r: ri, c: 0 }, f: { r: ri, c: cols.length - 1 } })}
                     onContextMenu={(e) => { e.preventDefault(); setMenu({ anchor: { x: e.clientX, y: e.clientY }, kind: 'row', r: ri, c: 0 }); }}>
-                    <span className="group-hover/rn:hidden">{row.order}</span>
+                    <span className="flex w-full items-center justify-center gap-1 group-hover/rn:hidden">
+                      <span>{row.order}</span>
+                      {onViewRow && <button onClick={(e) => { e.stopPropagation(); onViewRow(row); }} className="text-muted" title="ดูข้อมูลทั้งแถว" aria-label="ดูข้อมูลทั้งแถว"><Eye className="h-[1.05em] w-[1.05em]" /></button>}
+                    </span>
                     <span className="hidden w-full items-center justify-center gap-1.5 group-hover/rn:flex">
+                      {onViewRow && <button onClick={(e) => { e.stopPropagation(); onViewRow(row); }} className="text-primary" title="ดูข้อมูลทั้งแถว" aria-label="ดูข้อมูลทั้งแถว"><Eye className="h-[1.05em] w-[1.05em]" /></button>}
                       <button onClick={(e) => { e.stopPropagation(); onOpenRow(row); }} className="text-primary" title="เปิดแถวในฟอร์ม" aria-label="เปิดแถวในฟอร์ม">
                         <Maximize2 className="h-[1.05em] w-[1.05em]" />
                       </button>
@@ -419,7 +425,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                           setMenu({ anchor: { x: e.clientX, y: e.clientY }, kind: 'cell', r: ri, c: ci });
                         }}>
                         <div className="flex h-full items-center overflow-hidden" style={{ padding: `0 ${8 * z}px` }}>
-                          <div className="min-w-0 flex-1 truncate"><CellDisplay col={col} value={v} /></div>
+                          <div className={col.dataType === 'image' ? 'h-full min-w-0 flex-1 overflow-hidden' : 'min-w-0 flex-1 truncate'}><CellDisplay col={col} value={v} /></div>
                         </div>
                         {isEdit && (
                           <CellEditor col={col} value={v} initial={editing?.initial}

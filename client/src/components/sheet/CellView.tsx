@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn';
 import { fmtDate, fmtDateTime, fmtNumber, fromLocalInput, optionLabel, toLocalInput } from '@/lib/format';
 import type { CellValue, Column } from '@/types';
 import { Popover } from '../ui/Popover';
+import { ImageCellEditor, ImageThumbs, toUrls } from './ImageCell';
 
 export function Chip({ label, color, size = 'md' }: { label: string; color?: string | null; size?: 'sm' | 'md' }) {
   const c = color ?? '#64748B';
@@ -39,6 +40,8 @@ export function CellDisplay({ col, value }: { col: Column; value: CellValue | un
           {(value as string[]).map((v) => <Chip key={v} size="sm" label={optionLabel(col, v)} color={col.options.find((o) => o.value === v)?.color} />)}
         </span>
       );
+    case 'image':
+      return <ImageThumbs urls={toUrls(value)} />;
     case 'url':
       return <a href={String(value)} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} className="text-primary underline-offset-2 hover:underline">{String(value).replace(/^https?:\/\//, '')}</a>;
     case 'email':
@@ -77,6 +80,7 @@ export function CellEditor({ col, value, initial, anchor, onCommit, onCancel }: 
     else if (e.key === 'Tab') { e.preventDefault(); text === rawText(col, value) ? cancel() : finish(conv(text), e.shiftKey ? 'left' : 'right'); }
   };
 
+  if (col.dataType === 'image') return <ImageCellEditor col={col} value={value} anchor={anchor} onCommit={finish} onCancel={cancel} />;
   if (col.dataType === 'select' || col.dataType === 'multi_select') return <OptionEditor col={col} value={value} anchor={anchor} onCommit={finish} onCancel={cancel} />;
 
   if (col.dataType === 'text')

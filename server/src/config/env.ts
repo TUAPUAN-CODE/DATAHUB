@@ -42,7 +42,7 @@ export const env = {
   rateLimitPerMin: num(process.env.RATE_LIMIT_PER_MIN, 600),
   showLockedItems: bool(process.env.SHOW_LOCKED_ITEMS, true),
   uploadDir: process.env.UPLOAD_DIR ?? 'uploads',
-  maxUploadMb: num(process.env.MAX_UPLOAD_MB, 5),
+  maxUploadMb: num(process.env.MAX_UPLOAD_MB, 15),
   trashRetentionDays: num(process.env.TRASH_RETENTION_DAYS, 30),
   serveClientDir: process.env.SERVE_CLIENT_DIR || '',
   /** Public base URL of the app (used for OAuth redirect URIs). Falls back to the request host. */

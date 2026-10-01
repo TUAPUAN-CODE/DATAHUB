@@ -23,7 +23,7 @@ export interface FileItem {
   level: number; permission: Perm; favorite: boolean; viewedAt?: string;
 }
 
-export type DataType = 'varchar' | 'text' | 'int' | 'float' | 'date' | 'datetime' | 'boolean' | 'select' | 'multi_select' | 'url' | 'email';
+export type DataType = 'varchar' | 'text' | 'int' | 'float' | 'date' | 'datetime' | 'boolean' | 'select' | 'multi_select' | 'url' | 'email' | 'image';
 export interface SelectOption { value: string; label: string; color?: string | null }
 export interface Validation {
   min?: number | null; max?: number | null; decimals?: number | null; maxLength?: number | null; pattern?: string | null;

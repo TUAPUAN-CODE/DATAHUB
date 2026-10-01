@@ -4,6 +4,7 @@ import { fromLocalInput, toLocalInput } from '@/lib/format';
 import type { CellValue, Column } from '@/types';
 import { TextArea, TextInput, Toggle } from '../ui/Inputs';
 import { SearchSelect } from '../ui/SearchSelect';
+import { ImagePicker, toUrls } from './ImageCell';
 
 type Col = Pick<Column, 'dataType' | 'options' | 'placeholder' | 'validation' | 'name'>;
 
@@ -30,6 +31,8 @@ export function FieldInput({ col, value, onChange, invalid, autoFocus }: {
         <SearchSelect value={(value as string) ?? null} onChange={(v) => onChange(v)} placeholder={ph ?? 'เลือก…'} className={invalid ? '!border-danger' : ''}
           options={[{ value: '', label: '— ไม่ระบุ —' }, ...(col.options ?? []).map((o) => ({ value: o.value, label: o.label, color: o.color }))]} />
       );
+    case 'image':
+      return <ImagePicker urls={toUrls(value)} onChange={(u) => onChange(u.length ? u : null)} max={col.validation?.maxSelections ?? 200} columns={4} />;
     case 'multi_select': {
       const arr = Array.isArray(value) ? value : [];
       const max = col.validation?.maxSelections ?? Infinity;

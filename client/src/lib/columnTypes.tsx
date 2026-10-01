@@ -1,4 +1,4 @@
-import { AlignLeft, AtSign, Calendar, CalendarClock, CircleDot, Hash, Link, Percent, Tags, ToggleLeft, Type } from 'lucide-react';
+import { AlignLeft, AtSign, Images, Calendar, CalendarClock, CircleDot, Hash, Link, Percent, Tags, ToggleLeft, Type } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { ColumnDraft, DataType } from '@/types';
 
@@ -13,6 +13,7 @@ export const TYPE_META: Record<DataType, { label: string; sql: string; icon: Rea
   select: { label: 'ตัวเลือกเดียว', sql: 'SELECT', icon: <CircleDot />, width: 150, hint: 'เลือก 1 ค่าจากรายการ' },
   multi_select: { label: 'หลายตัวเลือก', sql: 'MULTI', icon: <Tags />, width: 200, hint: 'เลือกได้หลายค่า' },
   url: { label: 'ลิงก์', sql: 'URL', icon: <Link />, width: 200, hint: 'https://…' },
+  image: { label: 'รูปภาพ (หลายรูป)', sql: 'IMAGE', icon: <Images />, width: 200, hint: 'แนบรูปได้หลายรูปต่อเซลล์' },
   email: { label: 'อีเมล', sql: 'EMAIL', icon: <AtSign />, width: 200, hint: 'name@company.com' },
 };
 export const DATA_TYPES = Object.keys(TYPE_META) as DataType[];

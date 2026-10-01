@@ -13,6 +13,7 @@ export const DATA_TYPES = [
   'multi_select',
   'url',
   'email',
+  'image',
 ] as const;
 export type DataType = (typeof DATA_TYPES)[number];
 
@@ -272,6 +273,23 @@ export function normalizeValue(col: ColumnDef, raw: unknown, opts: { skipRequire
         return fail(`"${name}" เลือกได้ไม่เกิน ${v.maxSelections} รายการ`);
       return okv(out);
     }
+
+    case 'image': {
+      // Uploaded pictures are stored as a list of URLs (/uploads/<file>); the files themselves live in UPLOAD_DIR
+      const parts = (Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\n;,]/)).map((p) => p.trim()).filter(Boolean);
+      const out: string[] = [];
+      for (const p of parts) {
+        if (!/^(\/uploads\/[\w.-]+|https?:\/\/\S+)$/i.test(p) || p.length > 500) return fail(`"${name}" มีรูปภาพที่ไม่ถูกต้อง`);
+        if (!out.includes(p)) out.push(p);
+      }
+      if (!out.length) {
+        if (col.is_required && !opts.skipRequired) return fail(`"${name}" จำเป็นต้องมีรูปภาพอย่างน้อย 1 รูป`);
+        return okv(null);
+      }
+      const max = v.maxSelections ?? 200;
+      if (out.length > max) return fail(`"${name}" ใส่รูปได้ไม่เกิน ${max} รูป`);
+      return okv(out);
+    }
   }
   return fail(`ไม่รู้จักชนิดข้อมูล ${col.data_type}`);
 }
@@ -303,6 +321,7 @@ export function toStorage(type: DataType, value: CellValue): Stored {
       s.value_bool = !!value;
       break;
     case 'multi_select':
+    case 'image':
       s.value_json = JSON.stringify(value);
       break;
     default:
@@ -327,6 +346,7 @@ export function fromStorage(type: DataType, row: any): CellValue {
     case 'boolean':
       return row.value_bool === null || row.value_bool === undefined ? null : !!row.value_bool;
     case 'multi_select':
+    case 'image':
       return row.value_json ? safeJson<string[] | null>(row.value_json, null) : null;
     default:
       return row.value_text ?? null;

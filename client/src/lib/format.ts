@@ -62,6 +62,8 @@ export function displayValue(col: Column, v: CellValue): string {
       return optionLabel(col, String(v));
     case 'multi_select':
       return (v as string[]).map((x) => optionLabel(col, x)).join(', ');
+    case 'image':
+      return Array.isArray(v) ? (v as string[]).map((u) => (u.startsWith('/') ? `${window.location.origin}${u}` : u)).join(' | ') : '';
     default:
       return String(v);
   }

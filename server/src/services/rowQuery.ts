@@ -69,6 +69,7 @@ export function valueExpr(t: DataType, a: string) {
     case 'boolean':
       return `${a}.value_bool`;
     case 'multi_select':
+    case 'image':
       return `${a}.value_json`;
     default:
       return `${a}.value_text`;
@@ -93,6 +94,7 @@ function textExpr(t: DataType, a: string) {
     case 'boolean':
       return `CASE ${a}.value_bool WHEN 1 THEN N'true' WHEN 0 THEN N'false' END`;
     case 'multi_select':
+    case 'image':
       return `${a}.value_json`;
     default:
       return `${a}.value_text`;

@@ -72,6 +72,7 @@ function ColumnDetails({ c, set }: { c: ColumnDraft; set: (p: Partial<ColumnDraf
           <Field label="วันที่ช้าที่สุด"><TextInput type="date" value={v.maxDate ?? ''} onChange={(e) => setV({ maxDate: e.target.value || null })} /></Field>
         </>
       )}
+      {c.dataType === 'image' && <Field label="จำนวนรูปสูงสุดต่อเซลล์ (ว่าง = ไม่จำกัด)"><TextInput inputMode="numeric" value={v.maxSelections ?? ''} onChange={(e) => setV({ maxSelections: num(e.target.value) })} /></Field>}
       {c.dataType === 'multi_select' && <Field label="เลือกได้สูงสุด"><TextInput inputMode="numeric" value={v.maxSelections ?? ''} onChange={(e) => setV({ maxSelections: num(e.target.value) })} /></Field>}
       <Field label="ค่าเริ่มต้นเมื่อเพิ่มแถวใหม่">
         <FieldInput col={{ ...c, placeholder: 'ไม่มี', options: c.options ?? [], validation: v } as any} value={c.defaultValue ?? null} onChange={(d) => set({ defaultValue: d })} />

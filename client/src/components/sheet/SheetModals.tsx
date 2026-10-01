@@ -12,6 +12,7 @@ import { Checkbox, Field, TextArea, TextInput } from '../ui/Inputs';
 import { Avatar, EmptyState, Skeleton } from '../ui/misc';
 import { Modal } from '../ui/Modal';
 import { FieldInput } from './FieldInput';
+import { ImageGallery, toUrls } from './ImageCell';
 
 const SOURCE: Record<string, string> = { edit: 'แก้ไข', create: 'สร้าง', paste: 'วาง', rollback: 'ย้อนค่า', type_change: 'แปลงชนิด', undo: 'ย้อนกลับ', fill: 'เติม' };
 
@@ -66,9 +67,10 @@ export function RowFormModal({ open, onClose, columns, row, users, canWrite, onC
       </>}>
       <div className="grid max-h-[62vh] gap-4 overflow-y-auto pr-1 sm:grid-cols-2">
         {columns.map((c, i) => (
-          <Field key={c.id} label={c.name} required={c.isRequired} error={errors[c.id]} className={cn((c.dataType === 'text' || c.dataType === 'multi_select') && 'sm:col-span-2')}
+          <Field key={c.id} label={c.name} required={c.isRequired} error={errors[c.id]} className={cn((c.dataType === 'text' || c.dataType === 'multi_select' || c.dataType === 'image') && 'sm:col-span-2')}
             hint={row?.meta[c.id] ? `แก้ไขล่าสุด ${users[row.meta[c.id].by]?.name ?? ''} · ${relTime(row.meta[c.id].at)}` : c.description ?? undefined}>
             {canWrite ? <FieldInput col={c} value={values[c.id]} onChange={(v) => setValues({ ...values, [c.id]: v })} invalid={!!errors[c.id]} autoFocus={i === 0} />
+              : c.dataType === 'image' ? <ImageGallery urls={toUrls(values[c.id])} />
               : <div className="min-h-10 rounded-xl bg-ink/[.03] px-3 py-2.5 text-sm">{displayValue(c, values[c.id] ?? null) || <span className="text-muted">—</span>}</div>}
           </Field>
         ))}

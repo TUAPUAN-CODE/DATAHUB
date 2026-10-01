@@ -8,6 +8,7 @@ import { FileGlyph } from '@/components/files/icons';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/Inputs';
 import { EmptyState, Pager, Skeleton, Spinner } from '@/components/ui/misc';
+import { ImageThumbs, toUrls } from '@/components/sheet/ImageCell';
 import { useDebounce, useLoad } from '@/hooks';
 import { cn } from '@/lib/cn';
 import { displayValue } from '@/lib/format';
@@ -91,7 +92,7 @@ function GuestView({ token, info, loginBtn }: { token: string; info: NonNullable
                   {rows.data.rows.map((r) => (
                     <tr key={r.id}>
                       <td className="ds-td border-b border-r px-2 py-1.5 text-center text-xs text-muted">{r.order}</td>
-                      {cols.map((c) => <td key={c.id} className="ds-td max-w-[420px] truncate border-b border-r px-3 py-1.5">{displayValue(c, r.values[c.id] ?? null)}</td>)}
+                      {cols.map((c) => <td key={c.id} className="ds-td max-w-[420px] truncate border-b border-r px-3 py-1.5">{c.dataType === 'image' ? <div className="h-12"><ImageThumbs urls={toUrls(r.values[c.id])} max={5} /></div> : displayValue(c, r.values[c.id] ?? null)}</td>)}
                     </tr>
                   ))}
                   {!rows.data.rows.length && <tr><td colSpan={cols.length + 1} className="p-10 text-center text-muted">ไม่มีข้อมูล</td></tr>}
