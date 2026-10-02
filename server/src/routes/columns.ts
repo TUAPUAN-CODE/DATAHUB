@@ -39,7 +39,7 @@ router.post(
     if ((body.dataType === 'select' || body.dataType === 'multi_select') && body.validation?.lookup) await assertLookupConfig(req.user!, sheetId, null, body.validation.lookup as Lookup);
     if (body.dataType === 'doc_number' && body.validation?.docNumber) await assertDocNumberConfig(req.user!, sheetId, body.validation.docNumber as DocNumberCfg);
     if (await nameTaken(sheetId, body.name)) throw conflict(`มีคอลัมน์ชื่อ "${body.name}" อยู่แล้ว`);
-    body.validation = await prepareFormulaValidation(sheetId, null, body.dataType, body.validation);
+    body.validation = await prepareFormulaValidation(req.user!, sheetId, null, body.dataType, body.validation);
     const row = await withTx(async (tx) => {
       let order: number;
       if (body.insertAt !== undefined) {
@@ -92,7 +92,7 @@ router.put(
     if ((merged.dataType === 'select' || merged.dataType === 'multi_select') && (merged.validation as any)?.lookup)
       await assertLookupConfig(req.user!, before.sheet_id, id, (merged.validation as any).lookup as Lookup);
     if (merged.dataType === 'doc_number' && (merged.validation as any)?.docNumber) await assertDocNumberConfig(req.user!, before.sheet_id, (merged.validation as any).docNumber as DocNumberCfg);
-    merged.validation = (await prepareFormulaValidation(before.sheet_id, id, merged.dataType, merged.validation as Record<string, any> | null)) ?? null;
+    merged.validation = (await prepareFormulaValidation(req.user!, before.sheet_id, id, merged.dataType, merged.validation as Record<string, any> | null)) ?? null;
     const checked = checkColumnInput(merged as any);
     const formulaBefore = formulaExprOf({ data_type: before.data_type, validation: before.validation_rule ? JSON.parse(before.validation_rule) : null });
     const typeChanged = merged.dataType !== before.data_type;

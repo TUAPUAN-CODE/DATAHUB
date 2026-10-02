@@ -75,9 +75,11 @@ export function evaluate(n: Node, ctx: EvalCtx): FValue {
       if (['=', '<>', '<', '<=', '>', '>='].includes(n.op)) return compare(n.op, l, r);
       return arithmetic(n.op, l, r);
     }
+    case 'xref': throw new FormulaEvalError('@แหล่ง[คอลัมน์] ใช้ได้เฉพาะภายใน LOOKUP');
     case 'call': {
       const f = getFunction(n.name);
       if (!f) throw new FormulaEvalError(`ไม่มีฟังก์ชัน ${n.name}`);
+      if (f.raw) return f.fn(n.args, ctx, (x) => evaluate(x, ctx));
       const args = f.lazy ? n.args.map((a) => () => evaluate(a, ctx)) : n.args.map((a) => evaluate(a, ctx));
       return f.fn(args, ctx);
     }

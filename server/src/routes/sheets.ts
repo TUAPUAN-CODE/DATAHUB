@@ -10,6 +10,7 @@ import { assertUniqueNames, insertColumn } from '../services/structure';
 import { sheetInput } from '../shared/schemas';
 import { copySheet } from './files';
 import { syncUnionIfStale, unionStatus } from '../services/union';
+import { runColumnDecorators } from '../services/hooks';
 
 const router = Router();
 
@@ -33,6 +34,8 @@ router.get(
     const prefsRow = await q1(`SELECT prefs_json FROM UserSheetPrefs WHERE user_id = @u AND sheet_id = @s`, { u: T.uuid(req.user!.id), s: T.uuid(id) });
     const union = await unionStatus(sheet);
     if (union) syncUnionIfStale(sheet);
+    const columnsOut = cols.filter((c) => !c.is_deleted).map(mapColumn);
+    if (level >= LV.manage) await runColumnDecorators({ user: req.user!, sheetId: id, columns: columnsOut as { id: string; validation: Record<string, any> }[] });
     ok(res, {
       union,
       settings: safeJson(sheet.settings_json, {}) ?? {},
@@ -40,7 +43,7 @@ router.get(
       file: { id: sheet.file_id, name: sheet.file_name, folderId: sheet.folder_id },
       level,
       permission: levelName(level),
-      columns: cols.filter((c) => !c.is_deleted).map(mapColumn),
+      columns: columnsOut,
       deletedColumns: cols.filter((c) => c.is_deleted).map(mapColumn),
       prefs: { ...DEFAULT_PREFS, ...safeJson(prefsRow?.prefs_json, {}) },
     });

@@ -47,3 +47,10 @@ export async function runAfterCellsWritten(ctx: CellsWrittenCtx): Promise<ExtraW
 /** After a sheet (and its columns) was copied — modules re-point references that contain column ids */
 export const registerAfterSheetCopied = (fn: AfterSheetCopied) => { afterCopies.push(fn); };
 export async function runAfterSheetCopied(ctx: SheetCopiedCtx): Promise<void> { for (const fn of afterCopies) await fn(ctx); }
+
+/** Lets a module add display-only data to the columns of a sheet before they are sent to a manager's editor */
+export interface DecorateColumnsCtx { user: AuthUser; sheetId: string; columns: { id: string; validation: Record<string, any> }[] }
+type ColumnDecorator = (ctx: DecorateColumnsCtx) => Promise<void>;
+const decorators: ColumnDecorator[] = [];
+export const registerColumnDecorator = (fn: ColumnDecorator) => { decorators.push(fn); };
+export async function runColumnDecorators(ctx: DecorateColumnsCtx): Promise<void> { for (const fn of decorators) await fn(ctx); }

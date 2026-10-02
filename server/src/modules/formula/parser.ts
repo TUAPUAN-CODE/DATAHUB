@@ -5,6 +5,7 @@ type Tok =
   | { k: 'str'; v: string; pos: number }
   | { k: 'id'; v: string; pos: number }
   | { k: 'ref'; v: string; pos: number; end: number }
+  | { k: 'xref'; alias: string; sheetId: string | null; col: string; pos: number; end: number }
   | { k: 'op'; v: string; pos: number }
   | { k: 'eof'; pos: number };
 
@@ -27,6 +28,28 @@ function tokenize(src: string): Tok[] {
       i = j + 1;
       continue;
     }
+    if (ch === '@') {
+      // @alias[Column]  (what the user writes)  or  @{sheet-id}[#column-id]  (stored form): a column of another sheet
+      const start = i;
+      let alias = ''; let sheetId: string | null = null; let j = i + 1;
+      const canon = /^\{([0-9a-fA-F-]{36})\}/.exec(src.slice(j));
+      if (canon) { sheetId = canon[1].toLowerCase(); j += canon[0].length; }
+      else {
+        const id = /^[\p{L}\p{N}\p{M}_]+/u.exec(src.slice(j));
+        if (!id) throw new FormulaSyntaxError('หลัง @ ต้องตามด้วยชื่อแหล่งข้อมูล เช่น @คุมDelay[ชื่อคอลัมน์]', start);
+        alias = id[0]; j += id[0].length;
+      }
+      if (src[j] !== '[') throw new FormulaSyntaxError('ต้องระบุคอลัมน์ของแหล่งข้อมูลใน [ ] เช่น @คุมDelay[ชื่อคอลัมน์]', start);
+      let name = ''; j += 1;
+      for (;;) {
+        if (j >= src.length) throw new FormulaSyntaxError('ชื่อคอลัมน์ในวงเล็บ [ ] ไม่ครบ (ขาด ])', start);
+        if (src[j] === ']') { if (src[j + 1] === ']') { name += ']'; j += 2; continue; } break; }
+        name += src[j++];
+      }
+      out.push({ k: 'xref', alias, sheetId, col: name.trim(), pos: start, end: j + 1 });
+      i = j + 1;
+      continue;
+    }
     if (ch === '"' || ch === "'") {
       let j = i + 1, s = '';
       for (;;) {
@@ -40,7 +63,7 @@ function tokenize(src: string): Tok[] {
     }
     const num = /^\d+(\.\d+)?/.exec(src.slice(i));
     if (num) { out.push({ k: 'num', v: Number(num[0]), pos: i }); i += num[0].length; continue; }
-    const id = /^[\p{L}_][\p{L}\p{N}_.]*/u.exec(src.slice(i));
+    const id = /^[\p{L}_][\p{L}\p{N}\p{M}_.]*/u.exec(src.slice(i));
     if (id) { out.push({ k: 'id', v: id[0], pos: i }); i += id[0].length; continue; }
     const two = src.slice(i, i + 2);
     if (['<=', '>=', '<>', '!='].includes(two)) { out.push({ k: 'op', v: two === '!=' ? '<>' : two, pos: i }); i += 2; continue; }
@@ -98,6 +121,11 @@ export function parse(src: string): Node {
         const m = /^#([0-9a-fA-F-]{36})$/.exec(t.v);
         return { t: 'ref', raw: t.v, id: m ? m[1].toLowerCase() : null, start: t.pos, end: t.end };
       }
+      case 'xref': {
+        p++;
+        const m = /^#([0-9a-fA-F-]{36})$/.exec(t.col);
+        return { t: 'xref', alias: t.alias, sheetId: t.sheetId, col: t.col, columnId: m ? m[1].toLowerCase() : null, start: t.pos, end: t.end };
+      }
       case 'id': {
         p++;
         const up = t.v.toUpperCase();
@@ -125,6 +153,17 @@ export function parse(src: string): Node {
   const ast = cmp();
   if (peek().k !== 'eof') throw new FormulaSyntaxError(`ไม่ควรมี "${(peek() as { v?: string }).v ?? ''}" ตรงนี้`, peek().pos);
   return ast;
+}
+
+/** All references to columns of other sheets */
+export function collectXrefs(n: Node, out: Extract<Node, { t: 'xref' }>[] = []): Extract<Node, { t: 'xref' }>[] {
+  switch (n.t) {
+    case 'xref': out.push(n); break;
+    case 'call': n.args.forEach((a) => collectXrefs(a, out)); break;
+    case 'un': collectXrefs(n.arg, out); break;
+    case 'bin': collectXrefs(n.l, out); collectXrefs(n.r, out); break;
+  }
+  return out;
 }
 
 /** All column references of a parsed formula */

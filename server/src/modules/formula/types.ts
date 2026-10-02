@@ -10,6 +10,7 @@ export type Node =
   | { t: 'bool'; v: boolean }
   | { t: 'null' }
   | { t: 'ref'; raw: string; id: string | null; start: number; end: number }
+  | { t: 'xref'; alias: string; sheetId: string | null; col: string; columnId: string | null; start: number; end: number }
   | { t: 'call'; name: string; args: Node[]; pos: number }
   | { t: 'un'; op: '-' | '+' | 'NOT'; arg: Node }
   | { t: 'bin'; op: string; l: Node; r: Node };
@@ -24,4 +25,6 @@ export interface EvalCtx {
   /** value of a column of the current row */
   get(columnId: string): FValue;
   tzOffsetMinutes: number;
+  /** value of `resultColumnId` in the first row of another sheet whose `keyColumnId` equals `key` (LOOKUP) */
+  lookup?(sheetId: string, resultColumnId: string, keyColumnId: string, key: FValue): FValue;
 }

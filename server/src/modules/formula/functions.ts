@@ -1,5 +1,5 @@
 import { DAY_MS, formatDate, parts, toBool, toDate, toNumber, toText, unitMs } from './convert';
-import { DateV, EvalCtx, FormulaEvalError, FValue, isDateV } from './types';
+import { DateV, EvalCtx, FormulaEvalError, FValue, isDateV, Node } from './types';
 
 export interface FunctionDef {
   name: string;
@@ -7,7 +7,9 @@ export interface FunctionDef {
   maxArgs: number;
   /** lazy functions receive thunks, so only the branch that is needed gets evaluated (IF, COALESCE …) */
   lazy?: boolean;
-  fn: (args: any[], ctx: EvalCtx) => FValue;
+  /** raw functions receive the unevaluated argument nodes (LOOKUP reads column references, not values) */
+  raw?: boolean;
+  fn: (args: any[], ctx: EvalCtx, evalNode?: (n: Node) => FValue) => FValue;
   doc: { group: string; signature: string; description: string; example?: string };
 }
 
@@ -80,6 +82,36 @@ def({ name: 'DURATION', minArgs: 1, maxArgs: 1, doc: { group: G.date, signature:
     return [h > 0 ? `${h} h` : '', mm > 0 ? `${mm} m` : ''].filter(Boolean).join(' ') || '-';
   } });
 def({ name: 'COUNT', minArgs: 1, maxArgs: Infinity, doc: { group: G.math, signature: 'COUNT(a, b, …)', description: 'จำนวนค่าที่เป็นตัวเลข (ไม่นับค่าว่าง)' }, fn: (a) => numbers(a).length });
+
+
+// ---- other sheets + time text
+/**
+ * Hours and minutes written the way people write them: "5:30" (h:mm), "4.23" (h.mm = 4 h 23 m), "5" (hours).
+ * A number such as 5.3 is read as "5.3" = 5 h 30 m, so a typed 5.30 is never mistaken for 5.3 hours.
+ * Returns minutes, or null when the text is not a time (minutes must be below 60).
+ */
+export function parseHM(v: FValue): number | null {
+  if (v === null) return null;
+  const text = typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim() : '';
+  if (!text) return null;
+  const m = /^(\d+)(?:[:.](\d{1,2}))?$/.exec(text);
+  if (!m) return null;
+  const h = Number(m[1]);
+  let mins = 0;
+  if (m[2] !== undefined) {
+    const frac = m[2];
+    mins = frac.length === 1 && text.includes('.') ? Number(frac) * 10 : Number(frac); // "4.5" = 4 h 50 m, like "4.50"
+  }
+  return mins >= 60 ? null : h * 60 + mins;
+}
+def({ name: 'HM', minArgs: 1, maxArgs: 1, doc: { group: G.date, signature: 'HM(เวลา)', description: 'แปลงเวลาที่เขียนเป็น 5:30 / 4.23 (= 4 ชม. 23 นาที) / 5 (= 5 ชม.) ให้เป็นจำนวนนาที', example: 'HM(@คุมDelay[เตรียมเสร็จ-เข้าห้องเย็น])' }, fn: (a) => parseHM(a[0]) });
+def({ name: 'LOOKUP', minArgs: 3, maxArgs: 3, raw: true,
+  doc: { group: G.logic, signature: 'LOOKUP(@แหล่ง[ผลลัพธ์], @แหล่ง[ค้นหา], ค่าที่ใช้ค้น)', description: 'ดึงค่าจากแถวแรกของชีตอื่นที่คอลัมน์ค้นหาตรงกับค่าที่ใช้ค้น (ไม่สนตัวพิมพ์/ช่องว่าง) — ว่างถ้าไม่พบ', example: 'HM(LOOKUP(@คุมDelay[เตรียมเสร็จ-เข้าห้องเย็น], @คุมDelay[ประเภทวัตถุดิบ], [ประเภทวัตถุดิบ]))' },
+  fn: (nodes: Node[], ctx, ev) => {
+    const [a, b, k] = nodes;
+    if (a.t !== 'xref' || b.t !== 'xref' || !a.sheetId || !a.columnId || !b.columnId || !ctx.lookup || !ev) return null;
+    return ctx.lookup(a.sheetId, a.columnId, b.columnId, ev(k));
+  } });
 
 // ---- date / time
 def({ name: 'DATEVALUE', minArgs: 1, maxArgs: 1, doc: { group: G.date, signature: 'DATEVALUE("2026-01-31")', description: 'แปลงข้อความเป็นวันที่' }, fn: (a) => date(a[0]) });

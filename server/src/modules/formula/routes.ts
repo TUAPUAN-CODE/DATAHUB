@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ah, badRequest, ok, parse, pid } from '../../shared/http';
 import { LV, requireSheet } from '../../shared/permissions';
 import { loadColumns } from '../../services/cellWriter';
+import { SourceDef } from './compile';
 import { compileFormula, listFunctions } from './index';
 import { FormulaSyntaxError } from './types';
 import { countRows, FORMULA_TYPES, recomputeSheet, SYNC_LIMIT_ROWS } from './service';
@@ -19,11 +20,18 @@ router.post(
   ah(async (req, res) => {
     const sheetId = pid(req);
     await requireSheet(req.user!, sheetId, LV.manage);
-    const body = parse(z.object({ expr: z.string().max(2000), dataType: z.string().max(30), columnId: z.string().max(60).nullish() }), req.body);
+    const body = parse(z.object({ expr: z.string().max(2000), dataType: z.string().max(30), columnId: z.string().max(60).nullish(), sources: z.array(z.object({ alias: z.string().max(40), sheetId: z.string().max(60) })).max(10).optional() }), req.body);
     if (!FORMULA_TYPES.has(body.dataType)) throw badRequest('ชนิดข้อมูลนี้ใช้สูตรไม่ได้');
     const cols = await loadColumns(sheetId);
+    const sources: SourceDef[] = [];
+    const sourceColumns = new Map<string, { id: string; name: string; dataType: string }[]>();
+    for (const s of body.sources ?? []) {
+      await requireSheet(req.user!, s.sheetId, LV.read);
+      sources.push({ alias: s.alias, sheetId: s.sheetId.toLowerCase() });
+      sourceColumns.set(s.sheetId.toLowerCase(), (await loadColumns(s.sheetId)).map((x) => ({ id: x.column_id, name: x.column_name, dataType: x.data_type })));
+    }
     try {
-      const c = compileFormula(body.expr, cols.filter((x) => x.column_id !== body.columnId).map((x) => ({ id: x.column_id, name: x.column_name, dataType: x.data_type })), { selfId: body.columnId ?? undefined });
+      const c = compileFormula(body.expr, cols.filter((x) => x.column_id !== body.columnId).map((x) => ({ id: x.column_id, name: x.column_name, dataType: x.data_type })), { selfId: body.columnId ?? undefined, sources, sourceColumns });
       ok(res, { valid: true, display: c.display, dependsOn: c.deps });
     } catch (e) {
       if (e instanceof FormulaSyntaxError) return ok(res, { valid: false, message: e.message, pos: e.pos });
