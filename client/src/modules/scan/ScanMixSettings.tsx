@@ -1,31 +1,34 @@
 import { useEffect, useState } from 'react';
 import { Merge, Plus, ScanLine, Trash2 } from 'lucide-react';
-import type { MixCfg, ScanProfile, SheetSettings } from '@/api/endpoints';
+import type { LinesCfg, MixCfg, ScanProfile, SheetSettings } from '@/api/endpoints';
+import { LinesForm } from '../lines/LinesForm';
 import { toast } from '@/store/ui';
 import type { Column } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Field, Segmented, Select, TextInput, Toggle } from '@/components/ui/Inputs';
 import { Modal } from '@/components/ui/Modal';
-import { scanApi, splitScan } from './api';
+import { linesApi, scanApi, splitScan } from './api';
 
 const newProfile = (): ScanProfile => ({ id: Math.random().toString(36).slice(2, 10), name: 'รูปแบบใหม่', delimiter: '|', match: null, fields: [], action: 'create', keyColumnId: null, onMiss: 'reject' });
 const num = (c: Column) => c.dataType === 'int' || c.dataType === 'float';
 
 /** Managers: QR formats (which piece goes to which column, the separator) and the mix rules (which column the weight is cut from) */
-export function ScanMixSettings({ open, onClose, sheetId, columns, settings, onSaved }: {
-  open: boolean; onClose: () => void; sheetId: string; columns: Column[]; settings: SheetSettings | undefined; onSaved: () => void;
+export function ScanMixSettings({ open, onClose, sheetId, columns, settings, onSaved, fileId, fileName }: {
+  open: boolean; onClose: () => void; sheetId: string; columns: Column[]; settings: SheetSettings | undefined; onSaved: () => void; fileId: string; fileName: string;
 }) {
-  const [tab, setTab] = useState<'scan' | 'mix'>('scan');
+  const [tab, setTab] = useState<'scan' | 'mix' | 'lines'>('scan');
+  const [lines, setLines] = useState<LinesCfg | null>(null);
   const [profiles, setProfiles] = useState<ScanProfile[]>([]);
   const [mix, setMix] = useState<MixCfg | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setProfiles(structuredClone(settings?.scanProfiles ?? [])); setMix(settings?.mix ? structuredClone(settings.mix) : null); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) { setProfiles(structuredClone(settings?.scanProfiles ?? [])); setMix(settings?.mix ? structuredClone(settings.mix) : null); setLines(settings?.lines ? structuredClone(settings.lines) : null); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     setBusy(true);
     try {
       await scanApi.saveProfiles(sheetId, profiles);
       await scanApi.saveMix(sheetId, mix?.deductColumnId ? mix : null);
+      await linesApi.save(sheetId, lines?.lineSheetId ? lines : null);
       toast.success('บันทึกการตั้งค่าสแกน/ผสมแล้ว'); onSaved(); onClose();
     } catch (e) { toast.error(e); } finally { setBusy(false); }
   };
@@ -33,14 +36,14 @@ export function ScanMixSettings({ open, onClose, sheetId, columns, settings, onS
     <Modal open={open} onClose={onClose} size="xl" icon={<ScanLine className="h-5 w-5" />} title="ตั้งค่าสแกน QR / การผสม ของชีตนี้"
       footer={<><Button variant="secondary" onClick={onClose}>ยกเลิก</Button><Button onClick={save} loading={busy}>บันทึก</Button></>}>
       <div className="space-y-4">
-        <Segmented value={tab} onChange={setTab} options={[{ value: 'scan', label: 'รูปแบบ QR' }, { value: 'mix', label: 'การผสม / ตัดน้ำหนัก' }]} />
+        <Segmented value={tab} onChange={setTab} options={[{ value: 'scan', label: 'รูปแบบ QR' }, { value: 'mix', label: 'การผสม / ตัดน้ำหนัก' }, { value: 'lines', label: 'รายการในแถว (รถเข็น)' }]} />
         {tab === 'scan' ? (
           <div className="space-y-3">
             <p className="text-xs text-muted">กำหนดได้หลายรูปแบบ — ตอนสแกนระบบเลือกรูปแบบที่ตรงกับข้อความให้เอง (ดูจากเงื่อนไขที่ตั้ง เช่น ขึ้นต้นด้วย / จำนวนชุดข้อมูล)</p>
             {profiles.map((p, i) => <ProfileCard key={p.id} p={p} columns={columns} onChange={(np) => setProfiles(profiles.map((x, k) => (k === i ? np : x)))} onRemove={() => setProfiles(profiles.filter((_, k) => k !== i))} />)}
             <Button size="sm" variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => setProfiles([...profiles, newProfile()])}>เพิ่มรูปแบบ QR</Button>
           </div>
-        ) : <MixForm columns={columns} mix={mix} onChange={setMix} />}
+        ) : tab === 'mix' ? <MixForm columns={columns} mix={mix} onChange={setMix} /> : <LinesForm cfg={lines} onChange={setLines} fileId={fileId} fileName={fileName} />}
       </div>
     </Modal>
   );

@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
+import type { AuthUser } from '../../middleware/auth';
 import { z } from 'zod';
 import { q, T, withTx } from '../../config/db';
 import { applyCellUpdates, loadColumns } from '../../services/cellWriter';
@@ -52,21 +53,16 @@ router.post('/sheets/:id/scan/preview', ah(async (req, res) => {
   ok(res, { profile: { id: profile.id, name: profile.name }, ...parseScan(body.text, profile as ScanProfile) });
 }));
 
-/** A scan: pick the format, split the text and create a row / update the row it identifies */
-router.post('/sheets/:id/scan', ah(async (req, res) => {
-  const sheetId = pid(req);
-  const u = req.user!;
-  const { sheet } = await requireSheet(u, sheetId, LV.write);
-  const body = parse(z.object({ text: z.string().min(1).max(2000), profileId: z.string().max(40).nullish() }), req.body);
+/** Scan core, shared with other modules (line items of a trolley, devices): pick the format, split the text, create / update the row */
+export async function runScan(u: AuthUser, sheet: { file_id: string }, sheetId: string, text: string, profileId: string | null | undefined, req?: Request): Promise<{ action: 'created' | 'updated'; rowId: string; rowNo: number; profile: { id: string; name: string } }> {
   const profiles = await loadProfiles(sheetId);
   if (!profiles.length) throw badRequest('ชีตนี้ยังไม่ได้ตั้งค่ารูปแบบ QR (ผู้จัดการตั้งได้ที่ปุ่ม ตั้งค่าสแกน/ผสม)');
-  const profile = body.profileId ? profiles.find((p) => p.id === body.profileId) ?? null : detectProfile(body.text, profiles);
-  if (!profile) throw badRequest('ข้อความที่สแกนไม่ตรงกับรูปแบบ QR ที่ตั้งไว้', { text: body.text.slice(0, 200) });
-  const { values } = parseScan(body.text, profile);
+  const profile = profileId ? profiles.find((p) => p.id === profileId) ?? null : detectProfile(text, profiles);
+  if (!profile) throw badRequest('ข้อความที่สแกนไม่ตรงกับรูปแบบ QR ที่ตั้งไว้', { text: text.slice(0, 200) });
+  const { values } = parseScan(text, profile);
   if (!Object.keys(values).length) throw badRequest(`รูปแบบ “${profile.name}”: ไม่พบข้อมูลในตำแหน่งที่กำหนด`);
 
   const cols = await loadColumns(sheetId);
-  let rowId: string; let rowNo: number; let action: 'created' | 'updated';
   const found = profile.action === 'update' && profile.keyColumnId && values[profile.keyColumnId]
     ? await findRowByValue(sheetId, cols.find((c) => c.column_id === profile.keyColumnId)!, values[profile.keyColumnId]) : null;
   if (profile.action === 'update' && !found && profile.onMiss !== 'create') {
@@ -76,15 +72,24 @@ router.post('/sheets/:id/scan', ah(async (req, res) => {
   if (found) {
     const updates = Object.entries(values).filter(([c]) => c !== profile.keyColumnId).map(([columnId, value]) => ({ rowId: found.rowId, columnId, value }));
     if (updates.length) await applyCellUpdates(u, sheetId, updates, { req, source: 'scan' });
-    rowId = found.rowId; rowNo = found.rowNo; action = 'updated';
-  } else {
-    const made = await withTx((tx) => createRowTx(tx, u, sheet, sheetId, values, 'scan', req));
-    rowId = made.rowId; rowNo = made.rowNo; action = 'created';
-    emitToSheet(sheetId, 'rows:changed', { sheetId, action: 'create', rowId, by: u.displayName }, reqMeta(req).socketId);
+    return { action: 'updated', rowId: found.rowId, rowNo: found.rowNo, profile: { id: profile.id, name: profile.name } };
   }
-  const rec = await q(`SELECT row_id, row_order, created_by, created_at, updated_by, updated_at, deleted_at, deleted_by FROM Rows WHERE row_id = @r`, { r: T.uuid(rowId) });
+  const made = await withTx((tx) => createRowTx(tx, u, sheet, sheetId, values, 'scan', req));
+  emitToSheet(sheetId, 'rows:changed', { sheetId, action: 'create', rowId: made.rowId, by: u.displayName }, reqMeta(req).socketId);
+  return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: { id: profile.id, name: profile.name } };
+}
+
+/** A scan from the scan box */
+router.post('/sheets/:id/scan', ah(async (req, res) => {
+  const sheetId = pid(req);
+  const u = req.user!;
+  const { sheet } = await requireSheet(u, sheetId, LV.write);
+  const body = parse(z.object({ text: z.string().min(1).max(2000), profileId: z.string().max(40).nullish() }), req.body);
+  const r = await runScan(u, sheet, sheetId, body.text, body.profileId, req);
+  const cols = await loadColumns(sheetId);
+  const rec = await q(`SELECT row_id, row_order, created_by, created_at, updated_by, updated_at, deleted_at, deleted_by FROM Rows WHERE row_id = @r`, { r: T.uuid(r.rowId) });
   const { rows, userIds } = await hydrateRows(rec, cols);
-  ok(res, { action, rowNo, profile: { id: profile.id, name: profile.name }, row: rows[0], users: await userNames(userIds) });
+  ok(res, { action: r.action, rowNo: r.rowNo, profile: r.profile, row: rows[0], users: await userNames(userIds) });
 }));
 
 export default router;

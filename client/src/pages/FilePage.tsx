@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion';
 import {
   ChevronRight, Columns3, Copy, Download, Expand, History, Lock, MoreHorizontal, Pencil, Pin, PinOff, Plus, Redo2, RotateCcw, Search, Share2, Shrink, Trash2, Undo2, Upload, ZoomIn, ZoomOut,
-  ScanLine, Merge,
+  ScanLine, Merge, Boxes,
 } from 'lucide-react';
 import { apiError } from '@/api/client';
 import { filesApi, pdfApi, requestsApi, rowsApi } from '@/api/endpoints';
@@ -24,6 +24,7 @@ import { FilterBarSettings } from '@/components/sheet/FilterBarSettings';
 import { ScanMixSettings } from '@/modules/scan/ScanMixSettings';
 import { ScanDialog } from '@/modules/scan/ScanDialog';
 import { MixDialog } from '@/modules/mix/MixDialog';
+import { LinesDialog } from '@/modules/lines/LinesDialog';
 import { UnionBanner } from '@/components/sheet/UnionBanner';
 import { ImportModal } from '@/components/sheet/ImportModal';
 import { RowViewModal } from '@/components/sheet/RowViewModal';
@@ -84,7 +85,7 @@ export default function FilePage() {
   const [rowHist, setRowHist] = useState<Row | null>(null);
   const [selRows, setSelRows] = useState<string[]>([]);
   const [rowView, setRowView] = useState<Row | null>(null);
-  const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'import' | 'filterbar' | 'share' | 'rename' | 'dup' | 'scanmix' | 'scan' | 'mix' | null>(null);
+  const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'import' | 'filterbar' | 'share' | 'rename' | 'dup' | 'scanmix' | 'scan' | 'mix' | 'lines' | null>(null);
   const [more, setMore] = useState(false);
   const [freeze, setFreeze] = useState(false);
   const [full, setFull] = useState(false);
@@ -230,6 +231,7 @@ export default function FilePage() {
               {canWrite && <Button size="sm" variant="secondary" icon={<Upload className="h-4 w-4" />} onClick={() => setModal('import')}>นำเข้า</Button>}
               {canWrite && !!view.detail?.settings?.scanProfiles?.length && <Button size="sm" variant="secondary" icon={<ScanLine className="h-4 w-4" />} onClick={() => setModal('scan')}>สแกน</Button>}
               {canWrite && !!view.detail?.settings?.mix && <Button size="sm" variant="secondary" icon={<Merge className="h-4 w-4" />} onClick={() => setModal('mix')}>ผสม</Button>}
+              {!!view.detail?.settings?.lines && selRows.length === 1 && <Button size="sm" variant="secondary" icon={<Boxes className="h-4 w-4" />} onClick={() => setModal('lines')}>รายการในแถว</Button>}
               {canManage && !union && <Button size="sm" variant="secondary" icon={<Columns3 className="h-4 w-4" />} onClick={() => setModal('columns')}>คอลัมน์</Button>}
               {canManage && !union && <Button size="sm" variant="secondary" icon={<ScanLine className="h-4 w-4" />} onClick={() => setModal('scanmix')}>ตั้งค่าสแกน/ผสม</Button>}
               <div className="mx-1 hidden h-6 w-px bg-line sm:block" />
@@ -309,9 +311,10 @@ export default function FilePage() {
           <RowHistoryModal row={rowHist} columns={view.allColumns} canRollback={canManage} onClose={() => setRowHist(null)} onChanged={() => void view.loadRows(true)} />
           <ColumnManagerModal open={modal === 'columns'} onClose={() => setModal(null)} sheetId={sheetId} fileId={f.id} fileName={f.name} columns={view.detail.columns} deleted={view.detail.deletedColumns}
             onSaved={() => { void view.loadDetail(); void view.loadRows(true); }} />
-          <ScanMixSettings open={modal === 'scanmix'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.columns} settings={view.detail.settings} onSaved={() => void view.loadDetail()} />
+          <ScanMixSettings open={modal === 'scanmix'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.columns} settings={view.detail.settings} fileId={f.id} fileName={f.name} onSaved={() => void view.loadDetail()} />
           <ScanDialog open={modal === 'scan'} onClose={() => setModal(null)} sheetId={sheetId} profiles={view.detail.settings?.scanProfiles ?? []} onDone={() => void view.loadRows(true)} />
           {view.detail.settings?.mix && <MixDialog open={modal === 'mix'} onClose={() => setModal(null)} sheetId={sheetId} cfg={view.detail.settings.mix} columns={view.columns} selectedRows={view.rows.filter((r) => selRows.includes(r.id))} onDone={() => void view.loadRows(true)} />}
+          {view.detail.settings?.lines && <LinesDialog open={modal === 'lines'} onClose={() => setModal(null)} sheetId={sheetId} headerRow={view.rows.find((r) => r.id === selRows[0]) ?? null} headerLabel="" cfg={view.detail.settings.lines} canWrite={canWrite} onDone={() => void view.loadRows(true)} />}
           <FilterBarSettings open={modal === 'filterbar'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.columns} selected={barSel} onSaved={() => void view.loadDetail()} />
           <ImportModal open={modal === 'import'} onClose={() => setModal(null)} sheetId={sheetId} sheetName={view.detail.sheet.name} fileName={f.name} columns={view.detail.columns}
             onDone={() => void view.loadRows(true)} />

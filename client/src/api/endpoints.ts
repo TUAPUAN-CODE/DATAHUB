@@ -52,7 +52,8 @@ export interface ScanProfile {
   action: 'create' | 'update'; keyColumnId?: string | null; onMiss?: 'create' | 'reject' | null;
 }
 export interface MixCfg { deductColumnId: string; keyColumnId?: string | null; inheritColumnIds?: string[] | null; sameColumnIds?: string[] | null }
-export interface SheetSettings { filterColumns?: string[] | null; scanProfiles?: ScanProfile[]; mix?: MixCfg }
+export interface LinesCfg { lineSheetId: string; displayColumnIds?: string[] | null; actions?: { label: string; columnId: string; kind: 'now' | 'value'; value?: string | null }[] | null }
+export interface SheetSettings { filterColumns?: string[] | null; scanProfiles?: ScanProfile[]; mix?: MixCfg; lines?: LinesCfg }
 export interface SheetDetail {
   union?: UnionStatus | null;
   settings?: SheetSettings;
