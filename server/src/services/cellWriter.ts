@@ -17,6 +17,7 @@ import { LV, requireSheet } from '../shared/permissions';
 import { getLookup, lookupResolver, normalizeWithLookup } from './lookup';
 import { docPrefixes, getDocCfg, interpretDocRaw, nextDocNumbers, dateParts, DocNumberCfg } from './docNumber';
 import { emitToSheet } from '../socket';
+import { columnWriteBlockedReason, runAfterCellsWritten } from './hooks';
 
 export async function loadColumns(sheetId: string, tx?: Tx | null, includeDeleted = false) {
   return q(
@@ -203,6 +204,8 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
       errors.push({ rowId, columnId, columnName: col.column_name, message: 'ไม่พบแถว (อาจถูกลบแล้ว)' });
       continue;
     }
+    const blocked = columnWriteBlockedReason({ ...col, validation: col.validation as Record<string, any> }, opts.source ?? 'edit');
+    if (blocked) { errors.push({ rowId, columnId, rowNo: row.row_order, columnName: col.column_name, message: blocked }); continue; }
     let rawValue = u.value;
     let gen: { cfg: DocNumberCfg; prefix: string | null } | undefined;
     const dc = getDocCfg(col);
@@ -262,6 +265,11 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
           historyId: r.historyId,
           at: r.at,
         });
+    }
+    // modules (e.g. formula columns) react to the edit inside the same transaction; their cells are reported like edits
+    if (out.length) {
+      const extra = await runAfterCellsWritten({ tx, user, sheetId, rowIds: [...new Set(out.map((w) => w.rowId))], source });
+      for (const x of extra) if (!out.some((w) => w.rowId === x.rowId && w.columnId === x.columnId)) out.push(x);
     }
     await auditMany(
       out.map((w) => ({

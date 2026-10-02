@@ -2,7 +2,7 @@
   "name": "datasheet-pro-server",
   "version": "1.0.0",
   "private": true,
-  "description": "DataSheet Pro \u2014 REST + WebSocket API (Node.js, Express, SQL Server)",
+  "description": "DataSheet Pro — REST + WebSocket API (Node.js, Express, SQL Server)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:init": "ts-node --transpile-only src/scripts/initDb.ts",
     "db:reset": "ts-node --transpile-only src/scripts/initDb.ts --force",
-    "db:seed": "ts-node --transpile-only src/scripts/seed.ts"
+    "db:seed": "ts-node --transpile-only src/scripts/seed.ts",
+    "test": "node scripts/runTests.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

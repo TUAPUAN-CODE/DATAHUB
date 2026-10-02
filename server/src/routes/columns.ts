@@ -12,6 +12,7 @@ import { insertColumn } from '../services/structure';
 import { assertLookupConfig, Lookup } from '../services/lookup';
 import { assertDocNumberConfig, DocNumberCfg } from '../services/docNumber';
 import { emitToSheet } from '../socket';
+import { backfill, formulaDependents, formulaExprOf, prepareFormulaValidation } from '../modules/formula/service';
 
 const router = Router();
 
@@ -38,6 +39,7 @@ router.post(
     if ((body.dataType === 'select' || body.dataType === 'multi_select') && body.validation?.lookup) await assertLookupConfig(req.user!, sheetId, null, body.validation.lookup as Lookup);
     if (body.dataType === 'doc_number' && body.validation?.docNumber) await assertDocNumberConfig(req.user!, sheetId, body.validation.docNumber as DocNumberCfg);
     if (await nameTaken(sheetId, body.name)) throw conflict(`มีคอลัมน์ชื่อ "${body.name}" อยู่แล้ว`);
+    body.validation = await prepareFormulaValidation(sheetId, null, body.dataType, body.validation);
     const row = await withTx(async (tx) => {
       let order: number;
       if (body.insertAt !== undefined) {
@@ -52,6 +54,7 @@ router.post(
         newValue: { name: body.name, dataType: body.dataType, isRequired: body.isRequired } }, req, tx);
       return c;
     });
+    if (formulaExprOf({ data_type: body.dataType, validation: body.validation as Record<string, any> | null })) await backfill(req.user!, sheetId);
     emitToSheet(sheetId, 'columns:changed', { sheetId });
     ok(res, mapColumn(row), 201);
   }),
@@ -89,7 +92,9 @@ router.put(
     if ((merged.dataType === 'select' || merged.dataType === 'multi_select') && (merged.validation as any)?.lookup)
       await assertLookupConfig(req.user!, before.sheet_id, id, (merged.validation as any).lookup as Lookup);
     if (merged.dataType === 'doc_number' && (merged.validation as any)?.docNumber) await assertDocNumberConfig(req.user!, before.sheet_id, (merged.validation as any).docNumber as DocNumberCfg);
+    merged.validation = (await prepareFormulaValidation(before.sheet_id, id, merged.dataType, merged.validation as Record<string, any> | null)) ?? null;
     const checked = checkColumnInput(merged as any);
+    const formulaBefore = formulaExprOf({ data_type: before.data_type, validation: before.validation_rule ? JSON.parse(before.validation_rule) : null });
     const typeChanged = merged.dataType !== before.data_type;
 
     let conversion: { converted: number; cleared: number } | null = null;
@@ -135,6 +140,9 @@ router.put(
       await audit({ userId: req.user!.id, action: 'column_update', entityType: 'column', entityId: id, fileId: sheet.file_id, sheetId: before.sheet_id,
         oldValue: mapColumn(before), newValue: { ...merged, conversion } }, req, tx);
     });
+    const formulaAfter = formulaExprOf({ data_type: merged.dataType, validation: checked.validation as Record<string, any> | null });
+    // a changed formula is filled into existing rows; a converted column feeds the formulas that read it
+    if (formulaAfter !== formulaBefore || typeChanged) await backfill(req.user!, before.sheet_id);
     emitToSheet(before.sheet_id, 'columns:changed', { sheetId: before.sheet_id });
     ok(res, { column: mapColumn(await getColumn(id)), conversion });
   }),
@@ -163,6 +171,8 @@ router.delete(
     const { sheet } = await requireSheet(req.user!, col.sheet_id, LV.manage);
     const remaining = await q1(`SELECT COUNT(*) AS n FROM Columns WHERE sheet_id = @s AND is_deleted = 0`, { s: T.uuid(col.sheet_id) });
     if (Number(remaining?.n) <= 1) throw badRequest('ชีตต้องมีอย่างน้อย 1 คอลัมน์');
+    const used = await formulaDependents(col.sheet_id, id);
+    if (used.length) throw conflict(`ลบไม่ได้ คอลัมน์นี้ถูกใช้ในสูตรของ: ${used.join(', ')}`, 'USED_BY_FORMULA', { columns: used });
     await q(`UPDATE Columns SET is_deleted = 1, deleted_at = SYSUTCDATETIME() WHERE column_id = @id`, { id: T.uuid(id) });
     await audit({ userId: req.user!.id, action: 'column_delete', entityType: 'column', entityId: id, fileId: sheet.file_id, sheetId: col.sheet_id,
       oldValue: { name: col.column_name, dataType: col.data_type } }, req);

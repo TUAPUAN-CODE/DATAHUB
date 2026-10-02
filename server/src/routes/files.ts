@@ -10,6 +10,7 @@ import { LV, PermCtx, requireFile, requireFolder } from '../shared/permissions';
 import { sheetInput } from '../shared/schemas';
 import { assertUniqueNames, insertColumn } from '../services/structure';
 import { parseTemplates, remapTemplates, sheetsOfFile } from '../services/pdfTemplates';
+import { runAfterSheetCopied } from '../services/hooks';
 import { FILES_SQL, favoriteSet } from './folders';
 
 const router = Router();
@@ -191,6 +192,7 @@ async function copySheet(tx: Tx, oldSheetId: string, newFileId: string, order: n
     { old: T.uuid(oldSheetId), new: T.uuid(newSheetId), u: T.uuid(userId) },
     tx,
   );
+  await runAfterSheetCopied({ tx, oldSheetId, newSheetId, columnMap: colMap as { old_id: string; new_id: string }[] });
   if (includeData) {
     await q(
       `DECLARE @rm TABLE (old_id UNIQUEIDENTIFIER, new_id UNIQUEIDENTIFIER);

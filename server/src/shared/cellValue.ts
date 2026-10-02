@@ -38,6 +38,8 @@ export interface Validation {
   allowEmpty?: boolean | null;
   /** Options come from a column of another sheet (relationship) instead of a fixed list */
   lookup?: { sheetId: string; columnId: string; parent?: { localColumnId: string; foreignColumnId: string } | null } | null;
+  /** computed column: expression with columns referenced by id, e.g. DATEDIFF("hour", [#id], [#id]) */
+  formula?: { expr: string } | null;
   /** auto-numbered document id (type doc_number) */
   docNumber?: { template: string; prefixes?: string[] | null; prefixLookup?: { sheetId: string; columnId: string } | null; dateColumnId?: string | null } | null;
 }

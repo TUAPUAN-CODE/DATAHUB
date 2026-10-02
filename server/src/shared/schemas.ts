@@ -20,6 +20,7 @@ export const validationSchema = z
     maxDate: z.string().max(30).nullish(),
     maxSelections: z.number().int().min(1).max(500).nullish(),
     allowEmpty: z.boolean().nullish(),
+    formula: z.object({ expr: z.string().trim().min(1).max(2000) }).nullish(),
     docNumber: z
       .object({
         template: z.string().trim().min(1).max(100),
@@ -119,7 +120,7 @@ export function checkColumnInput(input: ColumnInput) {
     throw badRequest(`ค่าต่ำสุดต้องไม่มากกว่าค่าสูงสุด ในคอลัมน์ "${input.name}"`);
 
   let defaultValue: unknown = null;
-  if (!hasLookup && input.dataType !== 'doc_number' && input.defaultValue !== undefined && input.defaultValue !== null && input.defaultValue !== '') {
+  if (!hasLookup && input.dataType !== 'doc_number' && !input.validation?.formula?.expr && input.defaultValue !== undefined && input.defaultValue !== null && input.defaultValue !== '') {
     const def: ColumnDef = {
       column_id: '',
       column_name: input.name,

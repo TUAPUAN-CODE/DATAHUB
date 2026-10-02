@@ -8,6 +8,7 @@ import { ah, badRequest, forbidden, notFound, ok, parse, pid, reqMeta, safeJson,
 import { LV, requireSheet } from '../shared/permissions';
 import { filterSchema, sortSchema } from '../shared/schemas';
 import { loadColumns, writeCell } from '../services/cellWriter';
+import { columnWriteBlockedReason, runAfterCellsWritten } from '../services/hooks';
 import { applyRollback, planRollback } from '../services/rollback';
 import { baseWhere, distinctValues, hydrateRows, Params, queryRows, userNames } from '../services/rowQuery';
 import { dateParts, docDate, docPrefixes, hasPrefixToken, DocNumberCfg, getDocCfg, interpretDocRaw, nextDocNumbers } from '../services/docNumber';
@@ -71,6 +72,7 @@ router.post(
     const docGen: { def: ReturnType<typeof toColumnDef>; cfg: DocNumberCfg; prefix: string | null; date: ReturnType<typeof docDate> }[] = [];
     for (const c of cols) {
       const def = toColumnDef(c);
+      if (columnWriteBlockedReason(def, 'create')) continue; // computed columns are filled by their module
       let raw = rawAll[c.column_id];
       const dc = getDocCfg(def);
       if (dc) {
@@ -98,6 +100,7 @@ router.post(
         toWrite.push({ col: g.def, value: num });
       }
       for (const w of toWrite) await writeCell(tx, { sheetId, rowId: r!.row_id, col: w.col, value: w.value, userId: u.id, source: 'create' });
+      await runAfterCellsWritten({ tx, user: u, sheetId, rowIds: [r!.row_id], source: 'create' });
       await audit({ userId: u.id, action: 'row_create', entityType: 'row', entityId: r!.row_id, fileId: sheet.file_id, sheetId,
         newValue: { rowNo: o!.o, values: Object.fromEntries(toWrite.map((w) => [w.col.column_name, w.value])) } }, req, tx);
       return r!.row_id as string;
