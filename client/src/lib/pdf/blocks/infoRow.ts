@@ -29,11 +29,15 @@ const pt = (mm: number) => mm * MM;
 export function buildInfoRow(b: InfoRowBlock, c: BuildCtx) {
   const total = b.items.reduce((s, i) => s + (i.widthPct || 0), 0) || 100;
   const st = (s: TextStyle) => ({ font: s.font ?? c.base.font, fontSize: s.fontSize ?? c.base.fontSize, color: s.color ?? c.base.color, bold: !!s.bold, italics: !!s.italic });
-  const widths: (string | number)[] = [];
+  // the gaps come out of the width the items share, so the row never runs past the page margin
+  const margins = pt(b.marginLeft ?? 0) + pt(b.marginRight ?? 0);
+  const gaps = Math.max(0, b.items.length - 1) * pt(b.gapMm);
+  const room = Math.max(40, c.contentWidth - margins - gaps);
+  const widths: number[] = [];
   const row: any[] = [];
   b.items.forEach((it, i) => {
     if (i > 0) { widths.push(pt(b.gapMm)); row.push({ text: '', border: [false, false, false, false] }); }
-    widths.push(`${((it.widthPct || 0) / total) * 100}%`);
+    widths.push((room * (it.widthPct || 0)) / total);
     const val = fillTokens(it.value, c.vars, c.rowVars);
     row.push({ text: [{ text: `${it.label} `, ...st(b.labelStyle) }, { text: val || ' ', ...st(b.valueStyle) }], border: [false, false, false, b.underline] });
   });

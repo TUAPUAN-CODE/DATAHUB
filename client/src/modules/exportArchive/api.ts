@@ -15,7 +15,7 @@ export const archiveApi = {
     const f = new FormData();
     f.append('meta', JSON.stringify(meta));
     f.append('pdf', pdf, 'document.pdf');
-    return post<ArchiveItem>(`/files/${fileId}/exports`, f, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180_000 });
+    return post<ArchiveItem>(`/files/${fileId}/exports`, f, { timeout: 180_000 });
   },
   list: (fileId: string, params: { limit?: number; offset?: number; search?: string }) => get<{ items: ArchiveItem[]; total: number; canDelete: boolean }>(`/files/${fileId}/exports`, params),
   verify: (id: string) => get<{ intact: boolean; reason?: string }>(`/exports/${id}/verify`),

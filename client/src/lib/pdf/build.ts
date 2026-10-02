@@ -110,7 +110,7 @@ function tableBlock(b: TableBlock, c: BuildCtx) {
     ...(b.showRowNumber ? [{ text: b.rowNumberHeader || '#', bold: b.header.bold, color: b.header.color, fontSize: b.header.fontSize, alignment: 'center' }] : []),
     ...cols.map(({ ref, col }) => ({ text: ref.header || col.name, bold: b.header.bold, color: b.header.color, fontSize: b.header.fontSize, alignment: (ref.align ?? b.header.align) as any })),
   ];
-  const widths: any[] = [...(b.showRowNumber ? [pt(9)] : []), ...cols.map(({ ref, col }) => (ref.widthMm ? pt(ref.widthMm) : col.dataType === 'image' ? pt(b.imageSizeMm * Math.min(b.maxImagesPerCell, 2) + 4) : '*'))];
+  const widths: any[] = [...(b.showRowNumber ? [pt(9)] : []), ...cols.map(({ ref, col }) => (ref.widthMm ? Math.max(8, pt(ref.widthMm) - 2 * pt(b.padding * 0.7)) /* a column's width includes its own padding */ : col.dataType === 'image' ? pt(b.imageSizeMm * Math.min(b.maxImagesPerCell, 2) + 4) : '*'))];
   const body = (rows: Row[], startNo: number) => rows.map((r, i) => [
     ...(b.showRowNumber ? [{ text: String(startNo + i + 1), alignment: 'center', fontSize: b.body.fontSize, color: '#6B7280' }] : []),
     ...cols.map(({ ref, col }) => {

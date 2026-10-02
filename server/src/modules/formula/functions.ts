@@ -68,6 +68,19 @@ def({ name: 'CONTAINS', minArgs: 2, maxArgs: 2, doc: { group: G.text, signature:
 def({ name: 'FORMATNUM', minArgs: 2, maxArgs: 2, doc: { group: G.text, signature: 'FORMATNUM(x, ทศนิยม)', description: 'ข้อความตัวเลขพร้อมจุลภาค', example: 'FORMATNUM([น้ำหนัก], 1)' },
   fn: (a) => num(a[0]).toLocaleString('en-US', { minimumFractionDigits: Math.max(0, num(a[1])), maximumFractionDigits: Math.max(0, num(a[1])) }) });
 
+
+// ---- durations (report-style)
+def({ name: 'MINUTES', minArgs: 2, maxArgs: 2, doc: { group: G.date, signature: 'MINUTES(เริ่ม, จบ)', description: 'จำนวนนาทีระหว่างสองเวลา — ว่างถ้าขาดค่าใดค่าหนึ่งหรือจบก่อนเริ่ม', example: 'MINUTES([เข้าห้องเย็น], [ออกห้องเย็น])' },
+  fn: (a) => { const s = toDate(a[0]); const e = toDate(a[1]); if (!s || !e) return null; const m = (e.ms - s.ms) / 60_000; return m >= 0 ? m : null; } });
+def({ name: 'DURATION', minArgs: 1, maxArgs: 1, doc: { group: G.date, signature: 'DURATION(นาที)', description: 'แปลงนาทีเป็นข้อความ เช่น "2 h 30 m" (0 นาที = "-")', example: 'DURATION(MINUTES([เริ่ม], [จบ]))' },
+  fn: (a) => {
+    const m = toNumber(a[0]);
+    if (m === null) return null;
+    const h = Math.floor(m / 60); const mm = Math.floor(m % 60);
+    return [h > 0 ? `${h} h` : '', mm > 0 ? `${mm} m` : ''].filter(Boolean).join(' ') || '-';
+  } });
+def({ name: 'COUNT', minArgs: 1, maxArgs: Infinity, doc: { group: G.math, signature: 'COUNT(a, b, …)', description: 'จำนวนค่าที่เป็นตัวเลข (ไม่นับค่าว่าง)' }, fn: (a) => numbers(a).length });
+
 // ---- date / time
 def({ name: 'DATEVALUE', minArgs: 1, maxArgs: 1, doc: { group: G.date, signature: 'DATEVALUE("2026-01-31")', description: 'แปลงข้อความเป็นวันที่' }, fn: (a) => date(a[0]) });
 def({ name: 'DATEDIFF', minArgs: 3, maxArgs: 3, doc: { group: G.date, signature: 'DATEDIFF(หน่วย, เริ่ม, จบ)', description: 'ระยะห่างเป็นทศนิยม หน่วย: second / minute / hour / day / week (ค่าติดลบถ้าจบก่อนเริ่ม)', example: 'DATEDIFF("hour", [เข้าห้องเย็น], [ออกห้องเย็น])' },
