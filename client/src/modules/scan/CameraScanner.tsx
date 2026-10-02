@@ -13,7 +13,7 @@ const savePref = (f: Facing) => { try { localStorage.setItem(KEY, f); } catch { 
  * Keeps scanning until closed; the same text is not handed over twice within 2.5 s, and nothing is handed over while `busy`.
  * The browser allows the camera only on https:// or localhost — the message below explains it when it is blocked.
  */
-export function CameraScanner({ onText, busy = false, onClose }: { onText: (text: string) => void; busy?: boolean; onClose?: () => void }) {
+export function CameraScanner({ onText, busy = false, onClose, onFail }: { onText: (text: string) => void; busy?: boolean; onClose?: () => void; onFail?: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const scanner = useRef<import('qr-scanner').default | null>(null);
   const last = useRef<{ text: string; at: number }>({ text: '', at: 0 });
@@ -70,7 +70,7 @@ export function CameraScanner({ onText, busy = false, onClose }: { onText: (text
     return (
       <div className="space-y-2 rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm">
         <p className="flex items-start gap-2 text-danger"><CameraOff className="mt-0.5 h-4 w-4 shrink-0" />{error}</p>
-        {onClose && <Button size="sm" variant="secondary" onClick={onClose}>ปิด</Button>}
+        {(onFail ?? onClose) && <Button size="sm" variant="secondary" onClick={onFail ?? onClose}>ปิด (ใช้เครื่องสแกนแทน)</Button>}
       </div>
     );
   }
@@ -93,10 +93,16 @@ export function CameraScanner({ onText, busy = false, onClose }: { onText: (text
   );
 }
 
-/** A camera button that opens the reader under an input (the scanner device keeps working in the input as before) */
+const OPEN_KEY = 'scan.cameraOpen';
+/** Opens by itself the first time; once the user closes the camera (to use a scanner device) it stays closed on this device */
+const readOpen = () => { try { return localStorage.getItem(OPEN_KEY) !== 'off'; } catch { return true; } };
+const saveOpen = (v: boolean) => { try { localStorage.setItem(OPEN_KEY, v ? 'on' : 'off'); } catch { /* private window: fine */ } };
+
+/** Camera reader under an input — opens as soon as the dialog opens (the scanner device keeps working in the input as before) */
 export function CameraBox({ onText, busy }: { onText: (text: string) => void; busy?: boolean }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(readOpen);
+  const choose = (v: boolean) => { setOpen(v); saveOpen(v); };
   return open
-    ? <CameraScanner onText={onText} busy={busy} onClose={() => setOpen(false)} />
-    : <Button size="sm" variant="secondary" icon={<Camera className="h-4 w-4" />} onClick={() => setOpen(true)}>เปิดกล้องสแกน</Button>;
+    ? <CameraScanner onText={onText} busy={busy} onClose={() => choose(false)} onFail={() => setOpen(false)} />
+    : <Button size="sm" variant="secondary" icon={<Camera className="h-4 w-4" />} onClick={() => choose(true)}>เปิดกล้องสแกน</Button>;
 }

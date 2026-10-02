@@ -33,7 +33,7 @@ export function ScanDialog({ open, onClose, sheetId, profiles, onDone }: { open:
     } finally { setText(''); setBusy(false); requestAnimationFrame(() => input.current?.focus()); }
   };
   return (
-    <Modal open={open} onClose={onClose} size="md" icon={<ScanLine className="h-5 w-5" />} title="สแกน QR Code" description="ยิงเครื่องสแกนที่ช่องด้านล่าง (เครื่องสแกนจะกด Enter ให้เอง) หรือกด “เปิดกล้องสแกน” ใช้กล้องมือถือ/แท็บเล็ต — สแกนต่อเนื่องได้">
+    <Modal open={open} onClose={onClose} size="md" icon={<ScanLine className="h-5 w-5" />} title="สแกน QR Code" description="ยิงเครื่องสแกนที่ช่องด้านล่าง (เครื่องสแกนจะกด Enter ให้เอง) กล้องจะเปิดให้อัตโนมัติ (กด “ปิดกล้อง” ถ้าใช้เครื่องสแกนอย่างเดียว ระบบจำค่านี้ไว้ในเครื่อง) — สแกนต่อเนื่องได้">
       <div className="space-y-3">
         <TextInput ref={input} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } }}
           placeholder="สแกนที่นี่…" className="font-mono" disabled={busy} autoComplete="off" />
