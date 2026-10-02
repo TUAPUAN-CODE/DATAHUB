@@ -37,6 +37,7 @@ import { shareManageRouter, sharePublicRouter } from './routes/share';
 import formulaModule from './modules/formula/module';
 import exportArchiveModule from './modules/exportArchive/module';
 import './modules/alerts/module';
+import lineAlertsModule, { startLineWorker } from './modules/lineAlerts/module';
 import uploadRoutes from './routes/uploads';
 import userRoutes from './routes/users';
 
@@ -45,7 +46,8 @@ app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: false }));
 app.use(cors({ origin: env.corsOrigins, credentials: true }));
-app.use(express.json({ limit: '5mb' }));
+// the LINE webhook signature is checked against the exact bytes LINE sent
+app.use(express.json({ limit: '5mb', verify: (req, _res, buf) => { if (req.url?.startsWith('/api/line/webhook')) (req as any).rawBody = buf; } }));
 app.use(cookieParser());
 app.use('/uploads', express.static(path.resolve(env.uploadDir), { maxAge: '7d', index: false }));
 
@@ -62,10 +64,11 @@ app.use('/api', rateLimit({ windowMs: 60_000, max: env.rateLimitPerMin, standard
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', oauthRoutes);
 app.use('/api', sharePublicRouter);
+app.use('/api', lineAlertsModule.webhook);
 app.use('/api', authenticate);
 for (const r of [
   userRoutes, folderRoutes, fileRoutes, sheetRoutes, columnRoutes, rowRoutes, cellRoutes, accessRoutes, auditRoutes,
-  favoriteRoutes, activityRoutes, searchRoutes, notificationRoutes, themeRoutes, dashboardRoutes, uploadRoutes, trashRoutes, shareManageRouter, unionRoutes, pdfRoutes, formulaModule.router, exportArchiveModule.router,
+  favoriteRoutes, activityRoutes, searchRoutes, notificationRoutes, themeRoutes, dashboardRoutes, uploadRoutes, trashRoutes, shareManageRouter, unionRoutes, pdfRoutes, formulaModule.router, exportArchiveModule.router, lineAlertsModule.router,
 ]) app.use('/api', r);
 app.use('/api', (_req, res) => {
   res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'ไม่พบ API ที่เรียก' } });
@@ -91,6 +94,7 @@ getPool()
       logger.info(`DataSheet Pro API listening on http://0.0.0.0:${env.port} (LAN: http://172.48.0.116:${env.port})`)
     );
     void purgeExpiredTrash();
+    startLineWorker();
     setInterval(() => void purgeExpiredTrash(), 6 * 3600_000).unref();
   })
   .catch((err) => {

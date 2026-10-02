@@ -27,6 +27,7 @@ export const validationSchema = z
         endColumnId: zId.nullish(),
         limitColumnId: zId,
         normalColor: z.string().max(9).nullish(),
+        notify: z.object({ targetId: z.string().trim().min(5).max(64), levelIdx: z.array(z.number().int().min(0).max(7)).max(8).nullish(), labelColumnIds: z.array(zId).max(4).nullish() }).nullish(),
         levels: z.array(z.object({ atPct: z.number().min(0).max(100000), color: z.string().max(9), label: z.string().max(40).nullish() })).min(1).max(8),
       })
       .nullish(),

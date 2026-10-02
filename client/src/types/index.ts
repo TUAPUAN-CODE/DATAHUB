@@ -45,7 +45,8 @@ export interface Validation {
 export interface FormulaSource { alias: string; sheetId: string; fileId?: string | null; fileName?: string | null; sheetName?: string | null }
 export interface FormulaCfg { expr: string; sources?: FormulaSource[] }
 export interface AlertLevel { atPct: number; color: string; label?: string | null }
-export interface AlertCfg { startColumnId: string; endColumnId?: string | null; limitColumnId: string; normalColor?: string | null; levels: AlertLevel[] }
+export interface AlertNotify { targetId: string; levelIdx?: number[] | null; labelColumnIds?: string[] | null }
+export interface AlertCfg { startColumnId: string; endColumnId?: string | null; limitColumnId: string; normalColor?: string | null; levels: AlertLevel[]; notify?: AlertNotify | null }
 export interface DocNumberCfg { template: string; prefixes?: string[] | null; prefixLookup?: Lookup | null; dateColumnId?: string | null }
 export interface Lookup { sheetId: string; columnId: string; parent?: { localColumnId: string; foreignColumnId: string } | null }
 export type CellValue = string | number | boolean | string[] | null;
