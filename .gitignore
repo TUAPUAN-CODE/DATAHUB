@@ -7,3 +7,4 @@ uploads/
 
 # build/tool artifacts
 *.whl
+server/archive/
