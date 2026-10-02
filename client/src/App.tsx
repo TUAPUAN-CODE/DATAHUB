@@ -22,6 +22,7 @@ const PublicSharePage = lazy(() => import('@/pages/PublicSharePage'));
 const PdfDesignerPage = lazy(() => import('@/pages/PdfDesignerPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const TracebackPage = lazy(() => import('@/pages/TracebackPage'));
+const DevicesPage = lazy(() => import('@/pages/DevicesPage'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const status = useAuth((s) => s.status);
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="trash" element={<TrashPage />} />
           <Route path="dashboards" element={<DashboardsPage />} />
           <Route path="traceback" element={<TracebackPage />} />
+          <Route path="devices" element={<RequireRole roles={['master', 'admin']}><DevicesPage /></RequireRole>} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Route>

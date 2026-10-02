@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion';
 import {
   ChevronRight, Columns3, Copy, Download, Expand, History, Lock, MoreHorizontal, Pencil, Pin, PinOff, Plus, Redo2, RotateCcw, Search, Share2, Shrink, Trash2, Undo2, Upload, ZoomIn, ZoomOut,
-  ScanLine, Merge, Boxes,
+  ScanLine, Merge, Boxes, Cpu,
 } from 'lucide-react';
 import { apiError } from '@/api/client';
 import { filesApi, pdfApi, requestsApi, rowsApi } from '@/api/endpoints';
@@ -25,6 +25,7 @@ import { ScanMixSettings } from '@/modules/scan/ScanMixSettings';
 import { ScanDialog } from '@/modules/scan/ScanDialog';
 import { MixDialog } from '@/modules/mix/MixDialog';
 import { LinesDialog } from '@/modules/lines/LinesDialog';
+import { DeviceBindingsDialog } from '@/modules/devices/DeviceBindingsDialog';
 import { UnionBanner } from '@/components/sheet/UnionBanner';
 import { ImportModal } from '@/components/sheet/ImportModal';
 import { RowViewModal } from '@/components/sheet/RowViewModal';
@@ -85,7 +86,7 @@ export default function FilePage() {
   const [rowHist, setRowHist] = useState<Row | null>(null);
   const [selRows, setSelRows] = useState<string[]>([]);
   const [rowView, setRowView] = useState<Row | null>(null);
-  const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'import' | 'filterbar' | 'share' | 'rename' | 'dup' | 'scanmix' | 'scan' | 'mix' | 'lines' | null>(null);
+  const [modal, setModal] = useState<'columns' | 'trash' | 'rollback' | 'import' | 'filterbar' | 'share' | 'rename' | 'dup' | 'scanmix' | 'scan' | 'mix' | 'lines' | 'devices' | null>(null);
   const [more, setMore] = useState(false);
   const [freeze, setFreeze] = useState(false);
   const [full, setFull] = useState(false);
@@ -233,6 +234,7 @@ export default function FilePage() {
               {canWrite && !!view.detail?.settings?.mix && <Button size="sm" variant="secondary" icon={<Merge className="h-4 w-4" />} onClick={() => setModal('mix')}>ผสม</Button>}
               {!!view.detail?.settings?.lines && selRows.length === 1 && <Button size="sm" variant="secondary" icon={<Boxes className="h-4 w-4" />} onClick={() => setModal('lines')}>รายการในแถว</Button>}
               {canManage && !union && <Button size="sm" variant="secondary" icon={<Columns3 className="h-4 w-4" />} onClick={() => setModal('columns')}>คอลัมน์</Button>}
+              {canManage && !union && <Button size="sm" variant="secondary" icon={<Cpu className="h-4 w-4" />} onClick={() => setModal('devices')}>อุปกรณ์</Button>}
               {canManage && !union && <Button size="sm" variant="secondary" icon={<ScanLine className="h-4 w-4" />} onClick={() => setModal('scanmix')}>ตั้งค่าสแกน/ผสม</Button>}
               <div className="mx-1 hidden h-6 w-px bg-line sm:block" />
               <IconButton label="ย้อนกลับ (Ctrl+Z)" onClick={() => void view.undo()} disabled={!view.canUndo}><Undo2 className="h-4 w-4" /></IconButton>
@@ -315,6 +317,7 @@ export default function FilePage() {
           <ScanDialog open={modal === 'scan'} onClose={() => setModal(null)} sheetId={sheetId} profiles={view.detail.settings?.scanProfiles ?? []} onDone={() => void view.loadRows(true)} />
           {view.detail.settings?.mix && <MixDialog open={modal === 'mix'} onClose={() => setModal(null)} sheetId={sheetId} cfg={view.detail.settings.mix} columns={view.columns} selectedRows={view.rows.filter((r) => selRows.includes(r.id))} onDone={() => void view.loadRows(true)} />}
           {view.detail.settings?.lines && <LinesDialog open={modal === 'lines'} onClose={() => setModal(null)} sheetId={sheetId} headerRow={view.rows.find((r) => r.id === selRows[0]) ?? null} headerLabel="" cfg={view.detail.settings.lines} canWrite={canWrite} onDone={() => void view.loadRows(true)} />}
+          <DeviceBindingsDialog open={modal === 'devices'} onClose={() => setModal(null)} sheetId={sheetId} profiles={view.detail.settings?.scanProfiles ?? []} />
           <FilterBarSettings open={modal === 'filterbar'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.columns} selected={barSel} onSaved={() => void view.loadDetail()} />
           <ImportModal open={modal === 'import'} onClose={() => setModal(null)} sheetId={sheetId} sheetName={view.detail.sheet.name} fileName={f.name} columns={view.detail.columns}
             onDone={() => void view.loadRows(true)} />
