@@ -7,6 +7,7 @@ import { safeJson } from '../shared/http';
 import { LV, requireSheet } from '../shared/permissions';
 import { emitToSheet } from '../socket';
 import { loadColumns } from './cellWriter';
+import { runAfterSheetCopied } from './hooks';
 
 /**
  * Union sheet = one sheet whose rows are gathered from several source sheets that share EXACTLY the same columns.
@@ -37,13 +38,21 @@ const stable = (v: unknown): string => {
   return JSON.stringify(v);
 };
 
+/** Formulas keep column ids, which differ between sheets: compare them by the column names they refer to */
+function comparableValidation(raw: string | null, names: Map<string, string>) {
+  const v = safeJson<{ formula?: { expr?: string } } | null>(raw, null);
+  if (v?.formula?.expr) v.formula.expr = v.formula.expr.replace(/\[#([0-9a-fA-F-]{36})\]/g, (_m, id: string) => `[${(names.get(id.toLowerCase()) ?? '?').toLowerCase()}]`);
+  return v;
+}
+
 async function signature(sheetId: string): Promise<Sig[]> {
   const cols = await loadColumns(sheetId);
+  const names = new Map(cols.map((c) => [String(c.column_id).toLowerCase(), String(c.column_name).trim()]));
   return cols.map((c) => ({
     name: String(c.column_name).trim().toLowerCase(),
     type: c.data_type,
     required: !!c.is_required,
-    validation: stable(safeJson(c.validation_rule, null)),
+    validation: stable(comparableValidation(c.validation_rule, names)),
     options: stable((safeJson<{ value: string; label: string }[]>(c.select_options, []) ?? []).map((o) => [o.value, o.label])),
   }));
 }
@@ -119,12 +128,18 @@ export async function createUnionSheet(tx: Parameters<Parameters<typeof withTx>[
   while (taken.has(label.toLowerCase())) label += ' (รวม)';
   await q(`INSERT INTO Columns (sheet_id, column_name, data_type, display_order, width, is_required, created_by) VALUES (@s, @n, N'varchar', 0, 220, 0, @u)`,
     { s: T.uuid(sheetId), n: label, u: T.uuid(userId) }, tx);
-  for (const [i, c] of srcCols.entries())
-    await q(
+  const columnMap: { old_id: string; new_id: string }[] = [];
+  for (const [i, c] of srcCols.entries()) {
+    const ins = await q1(
       `INSERT INTO Columns (sheet_id, column_name, data_type, display_order, width, is_required, default_value, placeholder, validation_rule, select_options, description, created_by)
+       OUTPUT inserted.column_id
        VALUES (@s, @n, @t, @o, @w, @r, @dv, @ph, @vr, @so, @d, @u)`,
       { s: T.uuid(sheetId), n: c.column_name, t: c.data_type, o: T.int(i + 1), w: T.int(c.width), r: T.bit(!!c.is_required), dv: T.text(c.default_value), ph: T.text(c.placeholder),
         vr: T.text(c.validation_rule), so: T.text(c.select_options), d: T.text(c.description), u: T.uuid(userId) }, tx);
+    columnMap.push({ old_id: c.column_id as string, new_id: ins!.column_id as string });
+  }
+  // the union's columns are copies of the first source's: modules re-point references that contain column ids (formulas)
+  await runAfterSheetCopied({ tx, oldSheetId: sources[0].sheetId, newSheetId: sheetId, columnMap });
   return sheetId;
 }
 

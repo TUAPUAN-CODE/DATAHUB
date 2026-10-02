@@ -3,7 +3,8 @@ import { ArrowDown, ArrowUp, Plus, Trash2, Upload, X } from 'lucide-react';
 import { uploadsApi } from '@/api/endpoints';
 import { cn } from '@/lib/cn';
 import { loadCols } from '@/lib/dashCols';
-import { Align, Agg, Block, BlockType, ColumnsBlock, FieldsBlock, ImageBlock, LineBlock, newBlock, newTextBlock, PDF_FONTS, PdfFont, SpacerBlock, TableBlock, TableCol, TextBlock, TextStyle, TOKENS } from '@/lib/pdf/types';
+import { listTokens } from '@/lib/pdf/variables';
+import { Align, Agg, Block, BlockType, ColumnsBlock, FieldsBlock, ImageBlock, LineBlock, newBlock, newTextBlock, PDF_FONTS, PdfFont, PromptDef, SpacerBlock, TableBlock, TableCol, TextBlock, TextStyle } from '@/lib/pdf/types';
 import { toast } from '@/store/ui';
 import type { Column } from '@/types';
 import { Button } from '../ui/Button';
@@ -76,12 +77,12 @@ export function SpacingForm({ b, onChange }: { b: Block; onChange: (p: Partial<B
 }
 
 /* ---------------- text ---------------- */
-export function TextForm({ b, onChange, compact }: { b: TextBlock; onChange: (p: Partial<TextBlock>) => void; compact?: boolean }) {
+export function TextForm({ b, onChange, compact, prompts }: { b: TextBlock; onChange: (p: Partial<TextBlock>) => void; compact?: boolean; prompts?: PromptDef[] }) {
   return (
     <div className="space-y-3">
       <Field label="ข้อความ"><TextArea rows={compact ? 3 : 5} value={b.text} onChange={(e) => onChange({ text: e.target.value })} /></Field>
       <div className="flex flex-wrap gap-1">
-        {TOKENS.map((t) => <button key={t.token} type="button" title={t.label} onClick={() => onChange({ text: `${b.text}${t.token}` })} className="rounded-full border border-line px-2 py-0.5 font-mono text-[11px] hover:border-primary/50 hover:text-primary">{t.token}</button>)}
+        {listTokens(prompts).map((t) => <button key={t.token} type="button" title={t.label} onClick={() => onChange({ text: `${b.text}${t.token}` })} className="rounded-full border border-line px-2 py-0.5 font-mono text-[11px] hover:border-primary/50 hover:text-primary">{t.token}</button>)}
       </div>
       <p className="text-[11px] text-muted">ในโหมด “แบบฟอร์มต่อแถว” พิมพ์ {'{{ชื่อคอลัมน์}}'} เพื่อแทรกค่าของแถวนั้น เช่น {'{{หมายเลข IR}}'}</p>
       <StyleForm s={b.style} onChange={(style) => onChange({ style })} compact={compact} />

@@ -1,4 +1,7 @@
 import type { Column } from '@/types';
+import type { InfoRowBlock } from './blocks/infoRow';
+import type { SignatureBlock } from './blocks/signature';
+import { getBlockModule } from './registry';
 
 export const MM = 2.83465; // millimetres → PDF points
 
@@ -48,8 +51,23 @@ export interface TableBlock extends BlockBase {
 export interface FieldsBlock extends BlockBase {
   type: 'fields'; columns: TableCol[]; perRow: 1 | 2 | 3; label: TextStyle; value: TextStyle; border: { color: string; width: number } | null; imageSizeMm: number;
 }
-export type Block = TextBlock | ImageBlock | LineBlock | SpacerBlock | PageBreakBlock | ColumnsBlock | TableBlock | FieldsBlock;
+export type BuiltinBlock = TextBlock | ImageBlock | LineBlock | SpacerBlock | PageBreakBlock | ColumnsBlock | TableBlock | FieldsBlock;
+/** built-in blocks + the ones registered as modules (see ./registry.ts and ./blocks) */
+export type Block = BuiltinBlock | SignatureBlock | InfoRowBlock;
+export type BuiltinBlockType = BuiltinBlock['type'];
 export type BlockType = Block['type'];
+
+/** A value asked for in the export dialog and available as {{key}} in the document (e.g. Line, Plant) */
+export interface PromptDef {
+  key: string;
+  label: string;
+  type: 'text' | 'select' | 'date' | 'number';
+  options?: string[];
+  /** fixed text, or @today / @shift / @user */
+  default?: string;
+  required?: boolean;
+}
+export interface ShiftSettings { dayStart?: string; nightStart?: string; dayLabel?: string; nightLabel?: string }
 
 export interface PdfTemplate {
   id: string;
@@ -63,21 +81,23 @@ export interface PdfTemplate {
   footer: { enabled: boolean; blocks: (TextBlock | ImageBlock | ColumnsBlock | LineBlock | SpacerBlock)[] };
   blocks: Block[];
   watermark: { enabled: boolean; text: string; color: string; opacity: number; size: number; angle: number };
+  /** questions asked before exporting (header fields such as Line / Plant) */
+  prompts?: PromptDef[];
+  settings?: { shift?: ShiftSettings };
+  /** always show the export dialog (e.g. to save the document into the archive) */
+  askOnExport?: boolean;
   /** disable copying / editing in PDF viewers (open with no password) */
   lockEditing: boolean;
 }
 
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'b' + Math.random().toString(36).slice(2) + Date.now().toString(36));
 
-export const BLOCK_LABEL: Record<BlockType, string> = {
+export const BLOCK_LABEL: Record<BuiltinBlockType, string> = {
   text: 'ข้อความ', image: 'รูปภาพ', line: 'เส้นคั่น', spacer: 'ช่องว่าง', pageBreak: 'ขึ้นหน้าใหม่', columns: 'แถวหลายคอลัมน์', table: 'ตาราง', fields: 'ฟิลด์ข้อมูลของแถว',
 };
 
-export const TOKENS: { token: string; label: string }[] = [
-  { token: '{{page}}', label: 'เลขหน้า' }, { token: '{{pages}}', label: 'จำนวนหน้าทั้งหมด' }, { token: '{{date}}', label: 'วันที่พิมพ์ (ค.ศ.)' },
-  { token: '{{dateBE}}', label: 'วันที่พิมพ์ (พ.ศ.)' }, { token: '{{time}}', label: 'เวลา' }, { token: '{{file}}', label: 'ชื่อไฟล์' },
-  { token: '{{sheet}}', label: 'ชื่อชีต' }, { token: '{{user}}', label: 'ผู้พิมพ์' }, { token: '{{rows}}', label: 'จำนวนแถวในตาราง' },
-];
+/** Name of any block type, including the ones registered as modules */
+export const blockLabel = (type: string): string => (BLOCK_LABEL as Record<string, string>)[type] ?? getBlockModule(type)?.label ?? type;
 
 export function newTextBlock(text = 'ข้อความ', style: TextStyle = {}): TextBlock {
   return { id: uid(), type: 'text', text, style: { align: 'left', ...style }, marginBottom: 2 };
@@ -102,6 +122,11 @@ export function newBlock(type: BlockType, sheet?: { id: string; name: string; co
         showRowNumber: true, rowNumberHeader: '#', repeatHeader: true, useCurrentFilters: true, imageSizeMm: 18, maxImagesPerCell: 3,
         summary: [], summaryLabel: 'รวม', marginBottom: 3,
       };
+    default: {
+      const m = getBlockModule(type);
+      if (!m) throw new Error(`ไม่รู้จักบล็อกชนิด ${type}`);
+      return m.create() as Block;
+    }
   }
 }
 

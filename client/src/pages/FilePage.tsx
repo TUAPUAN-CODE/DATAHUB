@@ -7,6 +7,12 @@ import {
 import { apiError } from '@/api/client';
 import { filesApi, pdfApi, requestsApi, rowsApi } from '@/api/endpoints';
 import { defaultTemplate, PdfTemplate } from '@/lib/pdf/types';
+import type { ExportValues } from '@/lib/pdf/build';
+import { needsExportDialog, signersList } from '@/lib/pdf/exportValues';
+import { ExportDialog } from '@/components/pdf/ExportDialog';
+import { archiveApi } from '@/modules/exportArchive/api';
+import { ArchiveDialog } from '@/modules/exportArchive/ArchiveDialog';
+import { ArchiveOption, ArchiveOptionValue } from '@/modules/exportArchive/ArchiveOption';
 import { ColumnManagerModal } from '@/components/builder/ColumnManagerModal';
 import { DuplicateDialog, MetaModal, RequestAccessForm, ShareDialog } from '@/components/files/Dialogs';
 import { FileGlyph } from '@/components/files/icons';
@@ -125,7 +131,14 @@ export default function FilePage() {
   const [pdfTpls, setPdfTpls] = useState<PdfTemplate[] | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   useEffect(() => { if (exportMenu && !pdfTpls) pdfApi.get(id).then((r) => setPdfTpls(r.templates as PdfTemplate[])).catch(() => setPdfTpls([])); }, [exportMenu]); // eslint-disable-line react-hooks/exhaustive-deps
-  const exportPdf = async (t: PdfTemplate | null) => {
+  const [exportDlg, setExportDlg] = useState<PdfTemplate | null>(null);
+  const [archiveOpt, setArchiveOpt] = useState<ArchiveOptionValue>({ enabled: false, note: '' });
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  /** a layout that asks questions / needs signer names opens the dialog first; the others export straight away */
+  const startPdf = (t: PdfTemplate | null) => {
+    if (t && needsExportDialog(t)) { setArchiveOpt({ enabled: false, note: '' }); setExportDlg(t); } else void exportPdf(t);
+  };
+  const exportPdf = async (t: PdfTemplate | null, values?: ExportValues, archive?: ArchiveOptionValue) => {
     if (!sheetId || !view.detail) return;
     setPdfBusy(true);
     const tid = toast.info('กำลังสร้าง PDF…', 'ไฟล์ใหญ่อาจใช้เวลาสักครู่');
@@ -134,12 +147,22 @@ export default function FilePage() {
       const { generatePdf } = await import('@/lib/pdf/build');
       const tpl = t ?? defaultTemplate(file.data?.file.name ?? 'export', { id: sheetId, name: view.detail.sheet.name, columns: view.columns });
       const { blob, truncated } = await generatePdf(tpl, {
-        fileName: file.data?.file.name ?? '', user: useAuth.getState().user?.displayName ?? '',
+        fileName: file.data?.file.name ?? '', user: useAuth.getState().user?.displayName ?? '', values,
         current: { sheetId, filters: view.query.filters, sorts: view.query.sorts, search: view.query.search || undefined, selectedRowIds: selRows },
       });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${file.data?.file.name ?? 'export'} - ${view.detail.sheet.name}${t ? ` - ${t.name}` : ''}.pdf`; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 3000);
       toast.success('สร้าง PDF แล้ว', truncated ? 'ส่งออกเฉพาะ 50,000 แถวแรก' : undefined);
+      if (archive?.enabled && t) {
+        try {
+          await archiveApi.create(id, blob, {
+            title: `${file.data?.file.name ?? 'export'} - ${t.name}`, sheetId, templateId: t.id, templateName: t.name,
+            filters: { filters: view.query.filters, sorts: view.query.sorts, search: view.query.search || null },
+            prompts: values?.prompts, signers: signersList(t, values ?? {}), note: archive.note || null,
+          });
+          toast.success('บันทึกสำเนาเก็บเข้าระบบแล้ว', 'ดูได้ในเมนู “เอกสารที่ออกแล้ว”');
+        } catch (e) { toast.error(apiError(e).message, 'สร้าง PDF แล้ว แต่บันทึกสำเนาเก็บเข้าระบบไม่สำเร็จ'); }
+      }
     } catch (e) { toast.error((e as Error).message || 'สร้าง PDF ไม่สำเร็จ'); } finally { setPdfBusy(false); }
   };
   const deleteRows = async (ids: string[]) => {
@@ -227,10 +250,12 @@ export default function FilePage() {
                     { label: 'CSV (.csv)', icon: <Download />, onClick: () => void exportRows('csv') },
                     { divider: true },
                     ...(pdfTpls === null ? [{ label: 'กำลังโหลดรูปแบบ PDF…', disabled: true }] : [
-                      { label: 'PDF — รายงานมาตรฐาน', icon: <Download />, disabled: pdfBusy, onClick: () => void exportPdf(null) },
-                      ...pdfTpls.map((t) => ({ label: `PDF — ${t.name}${t.mode === 'perRow' ? ' (ฟอร์มต่อแถว)' : ''}`, icon: <Download />, disabled: pdfBusy, onClick: () => void exportPdf(t) })),
+                      { label: 'PDF — รายงานมาตรฐาน', icon: <Download />, disabled: pdfBusy, onClick: () => startPdf(null) },
+                      ...pdfTpls.map((t) => ({ label: `PDF — ${t.name}${t.mode === 'perRow' ? ' (ฟอร์มต่อแถว)' : ''}`, icon: <Download />, disabled: pdfBusy, onClick: () => startPdf(t) })),
                     ]),
-                    ...(canManage ? [{ divider: true }, { label: 'ออกแบบรูปแบบ PDF…', icon: <Pencil />, onClick: () => nav(`/files/${id}/pdf`) }] : []),
+                    { divider: true },
+                    { label: 'เอกสารที่ออกแล้ว…', icon: <Download />, onClick: () => setArchiveOpen(true) },
+                    ...(canManage ? [{ label: 'ออกแบบรูปแบบ PDF…', icon: <Pencil />, onClick: () => nav(`/files/${id}/pdf`) }] : []),
                   ]} />
                 </Popover>
                 <div className="mx-1 h-6 w-px bg-line" />
@@ -281,6 +306,12 @@ export default function FilePage() {
           <ImportModal open={modal === 'import'} onClose={() => setModal(null)} sheetId={sheetId} sheetName={view.detail.sheet.name} fileName={f.name} columns={view.detail.columns}
             onDone={() => void view.loadRows(true)} />
           <SheetTrashModal open={modal === 'trash'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.allColumns} onRestored={() => void view.loadRows(true)} />
+          {exportDlg && (
+            <ExportDialog open onClose={() => setExportDlg(null)} template={exportDlg} user={useAuth.getState().user?.displayName ?? ''} memoryKey={`${id}:${exportDlg.id}`} busy={pdfBusy}
+              extra={<ArchiveOption value={archiveOpt} onChange={setArchiveOpt} />}
+              onConfirm={async (values) => { const t = exportDlg; await exportPdf(t, values, archiveOpt); setExportDlg(null); }} />
+          )}
+          <ArchiveDialog open={archiveOpen} onClose={() => setArchiveOpen(false)} fileId={id} />
           <RollbackModal open={modal === 'rollback'} onClose={() => setModal(null)} sheetId={sheetId} sheetName={view.detail.sheet.name} onDone={() => void view.loadRows(true)} />
         </>
       )}

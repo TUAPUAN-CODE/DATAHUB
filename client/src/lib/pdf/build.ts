@@ -3,7 +3,12 @@ import type { Column, Row } from '@/types';
 import { collectData, CurrentView, resolveColumns, SheetData } from './data';
 import { loadPdfMake } from './fonts';
 import { preloadImages } from './images';
+import './blocks';
+import { getBlockModule } from './registry';
 import { Block, ColumnsBlock, FieldsBlock, ImageBlock, LineBlock, MM, PDF_FONTS, PdfFont, PdfTemplate, TableBlock, TextBlock, TextStyle } from './types';
+import { fillTokens, resolveVariables } from './variables';
+
+export { fillTokens, fmtDatePdf } from './variables';
 
 const PAGE_PT: Record<string, [number, number]> = { A3: [841.89, 1190.55], A4: [595.28, 841.89], A5: [419.53, 595.28], LETTER: [612, 792], LEGAL: [612, 1008] };
 const pt = (mm?: number) => (mm ?? 0) * MM;
@@ -13,20 +18,10 @@ interface Vars { [k: string]: string }
 export interface BuildCtx {
   fileName: string; user: string; now: Date; tables: Map<string, SheetData>; images: Map<string, string>; base: PdfTemplate['base'];
   contentWidth: number; vars: Vars; rowVars?: Vars;
+  /** names typed for the signature slots in the export dialog (slot id → name) */
+  signers: Record<string, string>;
 }
 
-const pad2 = (n: number) => String(n).padStart(2, '0');
-export const fmtDatePdf = (d: Date, be = false) => `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear() + (be ? 543 : 0)}`;
-
-/** Replaces {{tokens}} (case-insensitive); unknown tokens vanish */
-export function fillTokens(text: string, vars: Vars, extra?: Vars): string {
-  return (text ?? '').replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_m, k: string) => {
-    const key = k.toLowerCase();
-    if (extra) { const hit = Object.keys(extra).find((x) => x.toLowerCase() === key); if (hit !== undefined) return extra[hit]; }
-    const hit = Object.keys(vars).find((x) => x.toLowerCase() === key);
-    return hit !== undefined ? vars[hit] : '';
-  });
-}
 
 function textNode(text: string, s: TextStyle, base: PdfTemplate['base']) {
   const n: any = { text, font: s.font ?? base.font, fontSize: s.fontSize ?? base.fontSize, color: s.color ?? base.color, alignment: s.align ?? 'left', lineHeight: s.lineHeight ?? 1.15 };
@@ -216,6 +211,7 @@ function blockToNode(b: Simple, c: BuildCtx, row?: Row, sd?: SheetData): any | n
     }
     case 'table': node = tableBlock(b, c); break;
     case 'fields': node = row && sd ? fieldsBlock(b, c, row, sd) : { text: '(ฟิลด์ข้อมูลของแถว — ใช้ได้ในโหมด “แบบฟอร์มต่อแถว”)', italics: true, color: '#9CA3AF' }; break;
+    default: { const m = getBlockModule((b as { type: string }).type); node = m ? m.build(b, c) : null; }
   }
   if (node && b.pageBreakBefore) node.pageBreak = 'before';
   if (node && b.pageBreakAfter) { node = { stack: [node], pageBreak: 'after' }; }
@@ -237,7 +233,9 @@ function imageUrlsNeeded(t: PdfTemplate, tables: Map<string, SheetData>): string
   return urls;
 }
 
-export interface PdfRunOptions { fileName: string; user: string; current: CurrentView | null; previewLimit?: number; onProgress?: (m: string) => void }
+/** Answers collected in the export dialog */
+export interface ExportValues { prompts?: Record<string, string>; signers?: Record<string, string> }
+export interface PdfRunOptions { fileName: string; user: string; current: CurrentView | null; previewLimit?: number; onProgress?: (m: string) => void; values?: ExportValues }
 
 export async function buildDocDefinition(t: PdfTemplate, o: PdfRunOptions) {
   const tables = await collectData(t, o.current, { limit: o.previewLimit, onProgress: o.onProgress });
@@ -251,9 +249,8 @@ export async function buildDocDefinition(t: PdfTemplate, o: PdfRunOptions) {
   const firstTable = t.blocks.find((b): b is TableBlock => b.type === 'table');
   const sheetName = (t.mode === 'perRow' ? t.perRow?.sheetName : firstTable?.sheetName) ?? '';
   const rowCount = t.mode === 'perRow' ? tables.get(t.perRow?.sheetId ?? '')?.rows.length ?? 0 : (firstTable ? tables.get(firstTable.id)?.total ?? 0 : 0);
-  const vars: Vars = { date: fmtDatePdf(now), dateBE: fmtDatePdf(now, true), time: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`, file: o.fileName, sheet: sheetName, user: o.user, rows: rowCount.toLocaleString() };
-  vars.datetime = `${vars.date} ${vars.time}`;
-  const ctx: BuildCtx = { fileName: o.fileName, user: o.user, now, tables, images, base: t.base, contentWidth, vars };
+  const vars: Vars = resolveVariables({ now, fileName: o.fileName, sheetName, user: o.user, rowCount, prompts: o.values?.prompts ?? {}, settings: t.settings });
+  const ctx: BuildCtx = { fileName: o.fileName, user: o.user, now, tables, images, base: t.base, contentWidth, vars, signers: o.values?.signers ?? {} };
 
   const content: any[] = [];
   if (t.mode === 'perRow' && t.perRow) {

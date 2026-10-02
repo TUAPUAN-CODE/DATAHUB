@@ -231,6 +231,7 @@ router.post(
       const gens: Gen[] = [];
       let bad = false;
       for (const { def } of defs) {
+        if (columnWriteBlockedReason(def, 'import')) continue; // computed columns are filled after the rows are inserted
         let raw = rawAll[def.column_id];
         const dc = getDocCfg(def);
         if (dc) {
@@ -291,6 +292,7 @@ router.post(
                  FROM OPENJSON(@j) WITH (cell_id UNIQUEIDENTIFIER, row_id UNIQUEIDENTIFIER, column_id UNIQUEIDENTIFIER, nv NVARCHAR(MAX))`,
           { s: T.uuid(sheetId), u: T.uuid(u.id), j: T.text(JSON.stringify(histJson.slice(i, i + 2000))) }, tx);
       }
+      await runAfterCellsWritten({ tx, user: u, sheetId, rowIds: rowsJson.map((r) => r.row_id), source: 'import' });
       await audit({ userId: u.id, action: 'rows_import', entityType: 'sheet', entityId: sheetId, fileId: sheet.file_id, sheetId,
         newValue: { rows: valid.length, firstRowNo: start + 1 } }, req, tx);
     });

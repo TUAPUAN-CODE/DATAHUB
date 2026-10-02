@@ -14,7 +14,13 @@ import { useLoad } from '@/hooks';
 import { cn } from '@/lib/cn';
 import { loadCols } from '@/lib/dashCols';
 import { generatePdf } from '@/lib/pdf/build';
-import { Block, BLOCK_LABEL, BlockType, defaultTemplate, newBlock, newTemplate, PDF_FONTS, PdfFont, PdfTemplate, uid } from '@/lib/pdf/types';
+import { Block, blockLabel, BlockType, defaultTemplate, newBlock, newTemplate, PDF_FONTS, PdfFont, PdfTemplate, uid } from '@/lib/pdf/types';
+import { defaultExportValues } from '@/lib/pdf/exportValues';
+import { getBlockModule, listBlockModules } from '@/lib/pdf/registry';
+import '@/lib/pdf/blocks';
+import '@/components/pdf/blocks';
+import { getBlockForm } from '@/components/pdf/formRegistry';
+import { PromptsEditor } from '@/components/pdf/PromptsEditor';
 import { useAuth } from '@/store/auth';
 import { confirmDialog, toast } from '@/store/ui';
 import { Column, LV } from '@/types';
@@ -29,7 +35,7 @@ const blockSummary = (b: Block) => {
   if (b.type === 'fields') return `${b.columns.length} ฟิลด์ · ${b.perRow} ช่อง/บรรทัด`;
   if (b.type === 'columns') return `${b.cols.length} คอลัมน์`;
   if (b.type === 'spacer') return `${b.height} mm`;
-  return '';
+  return getBlockModule(b.type)?.summary?.(b) ?? '';
 };
 
 export default function PdfDesignerPage() {
@@ -84,7 +90,7 @@ export default function PdfDesignerPage() {
     const t = setTimeout(async () => {
       setBusy(true); setErr(null);
       try {
-        const { blob } = await generatePdf(tpl, { fileName, user: me?.displayName ?? '', current: null, previewLimit: 40 });
+        const { blob } = await generatePdf(tpl, { fileName, user: me?.displayName ?? '', current: null, previewLimit: 40, values: defaultExportValues(tpl, me?.displayName ?? '') });
         if (!live) return;
         const u = URL.createObjectURL(blob);
         if (prev.current) URL.revokeObjectURL(prev.current);
@@ -120,7 +126,7 @@ export default function PdfDesignerPage() {
   const download = async () => {
     if (!tpl) return;
     setBusy(true);
-    try { const { blob, truncated } = await generatePdf(tpl, { fileName, user: me?.displayName ?? '', current: null }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${fileName} - ${tpl.name}.pdf`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 3000); if (truncated) toast.info('ข้อมูลเกินกำหนด', 'ส่งออกเฉพาะ 50,000 แถวแรก'); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+    try { const { blob, truncated } = await generatePdf(tpl, { fileName, user: me?.displayName ?? '', current: null, values: defaultExportValues(tpl, me?.displayName ?? '') }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${fileName} - ${tpl.name}.pdf`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 3000); if (truncated) toast.info('ข้อมูลเกินกำหนด', 'ส่งออกเฉพาะ 50,000 แถวแรก'); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   };
   const exportJson = () => {
     if (!tpl) return;
@@ -223,7 +229,7 @@ export default function PdfDesignerPage() {
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
                 {listOf(tpl, scope).map((b, i, arr) => (
                   <div key={b.id} onClick={() => setSel({ kind: 'block', scope, id: b.id })} className={cn('group flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1.5', sel.kind === 'block' && sel.id === b.id ? 'border-primary bg-primary/10' : 'border-transparent hover:bg-ink/5')}>
-                    <div className="min-w-0 flex-1"><p className="text-sm font-medium">{BLOCK_LABEL[b.type]}</p><p className="truncate text-[11px] text-muted">{blockSummary(b)}</p></div>
+                    <div className="min-w-0 flex-1"><p className="text-sm font-medium">{blockLabel(b.type)}</p><p className="truncate text-[11px] text-muted">{blockSummary(b)}</p></div>
                     <span className="hidden items-center group-hover:flex">
                       <button title="ขึ้น" disabled={i === 0} onClick={(e) => { e.stopPropagation(); move(i, -1); }} className="rounded p-0.5 text-muted hover:bg-ink/10 disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
                       <button title="ลง" disabled={i === arr.length - 1} onClick={(e) => { e.stopPropagation(); move(i, 1); }} className="rounded p-0.5 text-muted hover:bg-ink/10 disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
@@ -237,7 +243,8 @@ export default function PdfDesignerPage() {
               <div className="border-t border-line p-2">
                 <Button ref={addBtn} className="w-full" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setAdd(true)}>เพิ่มบล็อก</Button>
                 <Popover open={add} onClose={() => setAdd(false)} anchor={addBtn.current} width={240}>
-                  <MenuList onClose={() => setAdd(false)} items={(scope === 'body' ? BLOCK_TYPES_BODY.filter((t) => (tpl.mode === 'perRow' ? t !== 'table' : t !== 'fields')) : BLOCK_TYPES_SIDE).map((t) => ({ label: BLOCK_LABEL[t], onClick: () => void addBlock(t) }))} />
+                  <MenuList onClose={() => setAdd(false)} items={[...(scope === 'body' ? BLOCK_TYPES_BODY.filter((t) => (tpl.mode === 'perRow' ? t !== 'table' : t !== 'fields')) : BLOCK_TYPES_SIDE).map((t) => ({ label: blockLabel(t), onClick: () => void addBlock(t) })),
+                    ...listBlockModules(scope, tpl.mode).map((m) => ({ label: m.label, onClick: () => void addBlock(m.type as BlockType) }))]} />
                 </Popover>
               </div>
             </>
@@ -264,14 +271,15 @@ export default function PdfDesignerPage() {
             : sel.kind === 'page' ? <PageSettings t={tpl} patch={patch} sheets={sheets} />
             : selBlock ? (
               <div className="space-y-4">
-                <p className="text-sm font-semibold text-primary">{BLOCK_LABEL[selBlock.type]}</p>
-                {selBlock.type === 'text' && <TextForm b={selBlock} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
+                <p className="text-sm font-semibold text-primary">{blockLabel(selBlock.type)}</p>
+                {selBlock.type === 'text' && <TextForm b={selBlock} prompts={tpl.prompts} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
                 {selBlock.type === 'image' && <ImageForm b={selBlock} perRow={tpl.mode === 'perRow'} columns={perRowColumns} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
                 {selBlock.type === 'line' && <LineForm b={selBlock} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
                 {selBlock.type === 'spacer' && <SpacerForm b={selBlock} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
                 {selBlock.type === 'columns' && <ColumnsForm b={selBlock} perRow={tpl.mode === 'perRow'} columns={perRowColumns} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
                 {selBlock.type === 'table' && <TableForm b={selBlock} sheets={sheets} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
                 {selBlock.type === 'fields' && <FieldsForm b={selBlock} columns={perRowColumns} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
+                {(() => { const Form = getBlockForm(selBlock.type); return Form ? <Form block={selBlock} template={tpl} onChange={(p: any) => updBlock(sel.scope, selBlock.id, p)} /> : null; })()}
                 {selBlock.type !== 'pageBreak' && <SpacingForm b={selBlock} onChange={(p) => updBlock(sel.scope, selBlock.id, p)} />}
                 {selBlock.type === 'pageBreak' && <p className="text-sm text-muted">เนื้อหาถัดจากบล็อกนี้จะขึ้นหน้าใหม่</p>}
               </div>
@@ -324,6 +332,19 @@ function PageSettings({ t, patch, sheets }: { t: PdfTemplate; patch: (p: Partial
             <Field label="สี"><ColorInput value={t.watermark.color} swatches={PDF_SWATCHES} onChange={(v) => patch({ watermark: { ...t.watermark, color: v ?? '#9CA3AF' } })} /></Field>
           </>
         )}
+      </Group>
+      <Group title="คำถามก่อน export (ตัวแปรหัวเอกสาร)">
+        <p className="text-[11px] text-muted">เช่น Line, Plant — ตอน export ระบบจะถามก่อน แล้วนำคำตอบไปใส่ในเอกสารที่ตัวแปร {'{{ชื่อตัวแปร}}'}</p>
+        <PromptsEditor prompts={t.prompts ?? []} onChange={(prompts) => patch({ prompts })} />
+        <Toggle checked={!!t.askOnExport} onChange={(v) => patch({ askOnExport: v })} label="ถามก่อน export ทุกครั้ง (เช่น เพื่อบันทึกเก็บเข้าระบบ)" />
+      </Group>
+      <Group title="กะทำงาน (ตัวแปร {{shift}})">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="กะเช้าเริ่ม"><TextInput value={t.settings?.shift?.dayStart ?? '06:00'} onChange={(e) => patch({ settings: { ...t.settings, shift: { ...t.settings?.shift, dayStart: e.target.value } } })} placeholder="06:00" className="!h-9" /></Field>
+          <Field label="กะดึกเริ่ม"><TextInput value={t.settings?.shift?.nightStart ?? '18:00'} onChange={(e) => patch({ settings: { ...t.settings, shift: { ...t.settings?.shift, nightStart: e.target.value } } })} placeholder="18:00" className="!h-9" /></Field>
+          <Field label="ชื่อกะเช้า"><TextInput value={t.settings?.shift?.dayLabel ?? 'DS'} onChange={(e) => patch({ settings: { ...t.settings, shift: { ...t.settings?.shift, dayLabel: e.target.value } } })} className="!h-9" /></Field>
+          <Field label="ชื่อกะดึก"><TextInput value={t.settings?.shift?.nightLabel ?? 'NS'} onChange={(e) => patch({ settings: { ...t.settings, shift: { ...t.settings?.shift, nightLabel: e.target.value } } })} className="!h-9" /></Field>
+        </div>
       </Group>
       <Group title="ความปลอดภัย"><Toggle checked={t.lockEditing} onChange={(v) => patch({ lockEditing: v })} label="ห้ามคัดลอก/แก้ไขเนื้อหาใน PDF (เปิดอ่านและพิมพ์ได้)" /></Group>
     </div>
