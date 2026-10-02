@@ -4,6 +4,7 @@ import type { ScanProfile } from '@/api/endpoints';
 import { Modal } from '@/components/ui/Modal';
 import { Select, TextInput } from '@/components/ui/Inputs';
 import { scanApi } from './api';
+import { CameraBox } from './CameraScanner';
 import { beep } from './beep';
 
 interface Entry { at: number; text: string; ok: boolean; message: string }
@@ -17,8 +18,8 @@ export function ScanDialog({ open, onClose, sheetId, profiles, onDone }: { open:
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { if (open) { setLog([]); setText(''); requestAnimationFrame(() => input.current?.focus()); } }, [open]);
 
-  const submit = async () => {
-    const t = text.trim();
+  const submit = async (fromCamera?: string) => {
+    const t = (fromCamera ?? text).trim();
     if (!t || busy) return;
     setBusy(true);
     try {
@@ -32,10 +33,11 @@ export function ScanDialog({ open, onClose, sheetId, profiles, onDone }: { open:
     } finally { setText(''); setBusy(false); requestAnimationFrame(() => input.current?.focus()); }
   };
   return (
-    <Modal open={open} onClose={onClose} size="md" icon={<ScanLine className="h-5 w-5" />} title="สแกน QR Code" description="ยิงเครื่องสแกนที่ช่องด้านล่าง (เครื่องสแกนจะกด Enter ให้เอง) แล้วสแกนต่อได้ทันที">
+    <Modal open={open} onClose={onClose} size="md" icon={<ScanLine className="h-5 w-5" />} title="สแกน QR Code" description="ยิงเครื่องสแกนที่ช่องด้านล่าง (เครื่องสแกนจะกด Enter ให้เอง) หรือกด “เปิดกล้องสแกน” ใช้กล้องมือถือ/แท็บเล็ต — สแกนต่อเนื่องได้">
       <div className="space-y-3">
         <TextInput ref={input} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } }}
           placeholder="สแกนที่นี่…" className="font-mono" disabled={busy} autoComplete="off" />
+        <CameraBox onText={(t) => void submit(t)} busy={busy} />
         {profiles.length > 1 && (
           <Select value={profileId} onChange={(e) => { setProfileId(e.target.value); input.current?.focus(); }}>
             <option value="">รูปแบบ: ตรวจจากข้อความอัตโนมัติ</option>{profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

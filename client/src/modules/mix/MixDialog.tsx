@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { TextInput } from '@/components/ui/Inputs';
 import { scanApi } from '../scan/api';
 import { beep } from '../scan/beep';
+import { CameraBox } from '../scan/CameraScanner';
 
 interface Line { row: Row; qty: string }
 const fmt = (n: number) => String(Math.round(n * 1e6) / 1e6);
@@ -30,8 +31,8 @@ export function MixDialog({ open, onClose, sheetId, cfg, columns, selectedRows, 
     const have = new Set(cur.map((l) => l.row.id));
     return [...cur, ...rows.filter((r) => !have.has(r.id)).map((r) => ({ row: r, qty: fmt(remainingOf(r)) }))];
   });
-  const find = async () => {
-    const v = key.trim();
+  const find = async (fromCamera?: string) => {
+    const v = (fromCamera ?? key).trim();
     if (!v) return;
     setErr('');
     try { const r = await scanApi.findForMix(sheetId, v); add([r.row]); beep(true); setKey(''); } catch (e) { beep(false); setErr((e as { response?: { data?: { error?: { message?: string } } }; message?: string }).response?.data?.error?.message ?? (e as Error).message); }
@@ -57,6 +58,7 @@ export function MixDialog({ open, onClose, sheetId, cfg, columns, selectedRows, 
           {keyCol && <TextInput ref={input} value={key} onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void find(); } }} placeholder={`สแกน/พิมพ์ ${keyCol.name} แล้วกด Enter`} className="!h-9 flex-1 font-mono" />}
           {selectedRows.length > 0 && <Button size="sm" variant="secondary" onClick={() => add(selectedRows)}>เพิ่มจากแถวที่ติ๊ก ({selectedRows.length})</Button>}
         </div>
+        {keyCol && <CameraBox onText={(t) => void find(t)} />}
         {err && <p className="rounded-lg bg-danger/10 px-2.5 py-1.5 text-sm text-danger">{err}</p>}
         <div className="overflow-hidden rounded-xl border border-line">
           <div className="grid grid-cols-[3.5rem_1fr_6rem_8rem_2rem] gap-2 bg-ink/5 px-3 py-1.5 text-xs text-muted"><span>แถว</span><span>{keyCol?.name ?? 'รายการ'}</span><span className="text-right">คงเหลือ</span><span>ใช้ผสม</span><span /></div>

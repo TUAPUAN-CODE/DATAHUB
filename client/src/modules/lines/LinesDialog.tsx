@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { CellDisplay } from '@/components/sheet/CellView';
 import { linesApi } from '../scan/api';
 import { beep } from '../scan/beep';
+import { CameraBox } from '../scan/CameraScanner';
 
 /** The line items of one row (the materials on a trolley): scan to add, remove, and run one action on all of them */
 export function LinesDialog({ open, onClose, sheetId, headerRow, headerLabel, cfg, canWrite, onDone }: {
@@ -33,7 +34,7 @@ export function LinesDialog({ open, onClose, sheetId, headerRow, headerLabel, cf
     setBusy(true); setErr('');
     try { await fn(); if (ok) toast.success(ok); beep(true); await load(); onDone(); } catch (e) { beep(false); setErr(msg(e)); } finally { setBusy(false); requestAnimationFrame(() => input.current?.focus()); }
   };
-  const add = () => { const t = text.trim(); if (!t || !headerRow) return; setText(''); void run(() => linesApi.add(sheetId, headerRow.id, { text: t })); };
+  const add = (fromCamera?: string) => { const t = (fromCamera ?? text).trim(); if (!t || !headerRow || busy) return; setText(''); void run(() => linesApi.add(sheetId, headerRow.id, { text: t })); };
 
   return (
     <Modal open={open} onClose={onClose} size="xl" icon={<Boxes className="h-5 w-5" />} title={`รายการใน ${headerLabel || `แถว #${headerRow?.order ?? ''}`}`} description={`${lines.length} รายการ`}>
@@ -46,6 +47,7 @@ export function LinesDialog({ open, onClose, sheetId, headerRow, headerLabel, cf
             ))}
           </div>
         )}
+        {canWrite && <CameraBox onText={(t) => add(t)} busy={busy} />}
         {err && <p className="rounded-lg bg-danger/10 px-2.5 py-1.5 text-sm text-danger">{err}</p>}
         <div className="overflow-x-auto rounded-xl border border-line">
           <table className="w-full text-sm">
