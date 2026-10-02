@@ -1,7 +1,7 @@
 import { Request, Router } from 'express';
 import type { AuthUser } from '../../middleware/auth';
 import { z } from 'zod';
-import { q, T, withTx } from '../../config/db';
+import { idList, jsonParam, q, T, withTx } from '../../config/db';
 import { applyCellUpdates, loadColumns } from '../../services/cellWriter';
 import { createRowTx } from '../../services/rowCreate';
 import { findRowByValue } from '../../services/rowFind';
@@ -10,7 +10,7 @@ import { readSettings, writeSettingsKey } from '../../services/sheetSettings';
 import { emitToSheet } from '../../socket';
 import { ah, badRequest, ok, parse, pid, reqMeta, zId } from '../../shared/http';
 import { LV, requireSheet } from '../../shared/permissions';
-import { detectProfile, parseScan, ScanProfile } from './parse';
+import { detectProfile, firstEmptyStamp, parseScan, ScanProfile } from './parse';
 
 const router = Router();
 
@@ -23,6 +23,8 @@ const profileSchema = z.object({
   action: z.enum(['create', 'update']),
   keyColumnId: zId.nullish(),
   onMiss: z.enum(['create', 'reject']).nullish(),
+  stamps: z.array(zId).max(6).nullish(),
+  onFull: z.enum(['ignore', 'reject', 'new_row']).nullish(),
 });
 
 const loadProfiles = async (sheetId: string): Promise<ScanProfile[]> => ((await readSettings(sheetId)).scanProfiles ?? []) as ScanProfile[];
@@ -37,6 +39,8 @@ router.put('/sheets/:id/scan/profiles', ah(async (req, res) => {
     for (const f of p.fields) if (!cols.has(f.columnId)) throw badRequest(`รูปแบบ “${p.name}”: ไม่พบคอลัมน์ที่เลือก (อาจถูกลบแล้ว)`);
     if (new Set(p.fields.map((f) => f.index)).size !== p.fields.length) throw badRequest(`รูปแบบ “${p.name}”: ข้อมูลชุดเดียวกันถูกใส่หลายคอลัมน์`);
     if (p.action === 'update' && (!p.keyColumnId || !p.fields.some((f) => f.columnId === p.keyColumnId))) throw badRequest(`รูปแบบ “${p.name}”: โหมดอัปเดตต้องเลือกคอลัมน์ที่ใช้หาแถว และคอลัมน์นั้นต้องมีข้อมูลชุดที่ใส่ให้`);
+    for (const sc of p.stamps ?? []) if (!cols.has(sc)) throw badRequest(`รูปแบบ “${p.name}”: ไม่พบคอลัมน์เวลาที่เลือก (อาจถูกลบแล้ว)`);
+    if (p.stamps?.length && p.action !== 'update') throw badRequest(`รูปแบบ “${p.name}”: การลงเวลาตามลำดับใช้กับโหมด “อัปเดตแถวที่มีอยู่” เท่านั้น`);
     if (p.match?.regex) { try { new RegExp(p.match.regex); } catch { throw badRequest(`รูปแบบ “${p.name}”: เงื่อนไข regex ไม่ถูกต้อง`); } }
   }
   await writeSettingsKey(sheetId, 'scanProfiles', profiles.length ? profiles : null);
@@ -54,7 +58,20 @@ router.post('/sheets/:id/scan/preview', ah(async (req, res) => {
 }));
 
 /** Scan core, shared with other modules (line items of a trolley, devices): pick the format, split the text, create / update the row */
-export async function runScan(u: AuthUser, sheet: { file_id: string }, sheetId: string, text: string, profileId: string | null | undefined, req?: Request): Promise<{ action: 'created' | 'updated'; rowId: string; rowNo: number; profile: { id: string; name: string } }> {
+export type ScanOutcome = { action: 'created' | 'updated' | 'ignored'; rowId: string; rowNo: number; profile: { id: string; name: string }; stamped?: string };
+
+/** which of the stamp columns of this row are already filled */
+async function filledStamps(rowId: string, stampIds: string[]): Promise<boolean[]> {
+  const cells = await q(
+    `SELECT column_id FROM Cells WHERE row_id = @r AND column_id IN ${idList('@cc')}
+     AND ((value_text IS NOT NULL AND value_text <> N'') OR value_int IS NOT NULL OR value_float IS NOT NULL OR value_date IS NOT NULL OR value_bool IS NOT NULL)`,
+    { r: T.uuid(rowId), cc: jsonParam(stampIds) });
+  const have = new Set(cells.map((c) => String(c.column_id).toLowerCase()));
+  return stampIds.map((id) => have.has(id.toLowerCase()));
+}
+
+/** Scan core, shared with other modules (line items of a trolley, devices): pick the format, split the text, create / update the row */
+export async function runScan(u: AuthUser, sheet: { file_id: string }, sheetId: string, text: string, profileId: string | null | undefined, req?: Request): Promise<ScanOutcome> {
   const profiles = await loadProfiles(sheetId);
   if (!profiles.length) throw badRequest('ชีตนี้ยังไม่ได้ตั้งค่ารูปแบบ QR (ผู้จัดการตั้งได้ที่ปุ่ม ตั้งค่าสแกน/ผสม)');
   const profile = profileId ? profiles.find((p) => p.id === profileId) ?? null : detectProfile(text, profiles);
@@ -63,20 +80,36 @@ export async function runScan(u: AuthUser, sheet: { file_id: string }, sheetId: 
   if (!Object.keys(values).length) throw badRequest(`รูปแบบ “${profile.name}”: ไม่พบข้อมูลในตำแหน่งที่กำหนด`);
 
   const cols = await loadColumns(sheetId);
+  const colName = (id: string) => cols.find((c) => c.column_id === id)?.column_name ?? '';
+  const stamps = profile.stamps ?? [];
+  const now = new Date().toISOString();
   const found = profile.action === 'update' && profile.keyColumnId && values[profile.keyColumnId]
-    ? await findRowByValue(sheetId, cols.find((c) => c.column_id === profile.keyColumnId)!, values[profile.keyColumnId]) : null;
+    ? await findRowByValue(sheetId, cols.find((c) => c.column_id === profile.keyColumnId)!, values[profile.keyColumnId], stamps.length > 0) : null;
   if (profile.action === 'update' && !found && profile.onMiss !== 'create') {
-    const keyName = cols.find((c) => c.column_id === profile.keyColumnId)?.column_name ?? 'คีย์';
-    throw badRequest(`ไม่พบแถวที่ ${keyName} = “${values[profile.keyColumnId!] ?? ''}”`, { notFound: true });
+    throw badRequest(`ไม่พบแถวที่ ${colName(profile.keyColumnId ?? '') || 'คีย์'} = “${values[profile.keyColumnId!] ?? ''}”`, { notFound: true });
   }
+  const create = async (extra: Record<string, string>) => {
+    const made = await withTx((tx) => createRowTx(tx, u, sheet, sheetId, { ...values, ...extra }, 'scan', req));
+    emitToSheet(sheetId, 'rows:changed', { sheetId, action: 'create', rowId: made.rowId, by: u.displayName }, reqMeta(req).socketId);
+    return made;
+  };
+  const prof = { id: profile.id, name: profile.name };
+
   if (found) {
     const updates = Object.entries(values).filter(([c]) => c !== profile.keyColumnId).map(([columnId, value]) => ({ rowId: found.rowId, columnId, value }));
+    let stamped: string | undefined;
+    if (stamps.length) {
+      const i = firstEmptyStamp(await filledStamps(found.rowId, stamps));
+      if (i >= 0) { updates.push({ rowId: found.rowId, columnId: stamps[i], value: now }); stamped = colName(stamps[i]); }
+      else if (profile.onFull === 'reject') throw badRequest(`แถวนี้ลงเวลาครบทุกช่องแล้ว (${stamps.map(colName).join(' → ')})`);
+      else if (profile.onFull === 'new_row') { const made = await create({ [stamps[0]]: now }); return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: prof, stamped: colName(stamps[0]) }; }
+      else return { action: 'ignored', rowId: found.rowId, rowNo: found.rowNo, profile: prof };
+    }
     if (updates.length) await applyCellUpdates(u, sheetId, updates, { req, source: 'scan' });
-    return { action: 'updated', rowId: found.rowId, rowNo: found.rowNo, profile: { id: profile.id, name: profile.name } };
+    return { action: 'updated', rowId: found.rowId, rowNo: found.rowNo, profile: prof, stamped };
   }
-  const made = await withTx((tx) => createRowTx(tx, u, sheet, sheetId, values, 'scan', req));
-  emitToSheet(sheetId, 'rows:changed', { sheetId, action: 'create', rowId: made.rowId, by: u.displayName }, reqMeta(req).socketId);
-  return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: { id: profile.id, name: profile.name } };
+  const made = await create(stamps.length ? { [stamps[0]]: now } : {});
+  return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: prof, stamped: stamps.length ? colName(stamps[0]) : undefined };
 }
 
 /** A scan from the scan box */
@@ -89,7 +122,7 @@ router.post('/sheets/:id/scan', ah(async (req, res) => {
   const cols = await loadColumns(sheetId);
   const rec = await q(`SELECT row_id, row_order, created_by, created_at, updated_by, updated_at, deleted_at, deleted_by FROM Rows WHERE row_id = @r`, { r: T.uuid(r.rowId) });
   const { rows, userIds } = await hydrateRows(rec, cols);
-  ok(res, { action: r.action, rowNo: r.rowNo, profile: r.profile, row: rows[0], users: await userNames(userIds) });
+  ok(res, { action: r.action, rowNo: r.rowNo, profile: r.profile, stamped: r.stamped ?? null, row: rows[0], users: await userNames(userIds) });
 }));
 
 export default router;

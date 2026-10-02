@@ -102,6 +102,7 @@ function ProfileCard({ p, columns, onChange, onRemove }: { p: ScanProfile; colum
           </>
         )}
       </div>
+      {p.action === 'update' && <StampsEditor p={p} columns={columns} onChange={onChange} />}
       <details className="text-sm">
         <summary className="cursor-pointer text-muted">เงื่อนไขเลือกรูปแบบอัตโนมัติ (เมื่อมีหลายรูปแบบ)</summary>
         <div className="mt-2 grid gap-2 md:grid-cols-3">
@@ -110,6 +111,36 @@ function ProfileCard({ p, columns, onChange, onRemove }: { p: ScanProfile; colum
           <Field label="Regex (ขั้นสูง)"><TextInput value={p.match?.regex ?? ''} onChange={(e) => onChange({ ...p, match: { ...p.match, regex: e.target.value || null } })} className="font-mono" /></Field>
         </div>
       </details>
+    </div>
+  );
+}
+
+/** Time stamps in order: every scan of the same card fills the next empty time column (in → out …) */
+function StampsEditor({ p, columns, onChange }: { p: ScanProfile; columns: Column[]; onChange: (p: ScanProfile) => void }) {
+  const stamps = p.stamps ?? [];
+  const times = columns.filter((c) => c.dataType === 'datetime' || c.dataType === 'date');
+  const toggle = (id: string) => {
+    const next = stamps.includes(id) ? stamps.filter((x) => x !== id) : [...stamps, id].slice(0, 6);
+    onChange({ ...p, stamps: next.length ? next : null, onFull: next.length ? p.onFull ?? 'ignore' : null });
+  };
+  return (
+    <div className="space-y-2 rounded-lg bg-primary/[.04] p-2.5">
+      <p className="text-xs font-medium">ลงเวลาตามลำดับเมื่อสแกนซ้ำ (เช่น เข้า → ออก)</p>
+      <p className="text-[11px] text-muted">เลือกคอลัมน์เวลาตามลำดับที่ต้องการ — สแกนครั้งที่ 1 ลงเวลาในคอลัมน์ที่ 1, ครั้งที่ 2 (การ์ดใบเดิม) ลงในคอลัมน์ที่ 2 … ใช้แถวล่าสุดของการ์ดใบนั้น</p>
+      <div className="flex flex-wrap gap-1.5">
+        {times.map((c) => {
+          const i = stamps.indexOf(c.id);
+          return <button key={c.id} type="button" onClick={() => toggle(c.id)} className={`rounded-full border px-2.5 py-0.5 text-xs ${i >= 0 ? 'border-primary bg-primary/10 text-primary' : 'border-line hover:border-primary/50'}`}>{i >= 0 ? `${i + 1}. ` : ''}{c.name}</button>;
+        })}
+        {!times.length && <span className="text-xs text-muted">ชีตนี้ยังไม่มีคอลัมน์วันที่/เวลา</span>}
+      </div>
+      {stamps.length > 0 && (
+        <Field label="เมื่อลงเวลาครบทุกคอลัมน์แล้วสแกนอีก">
+          <Select value={p.onFull ?? 'ignore'} onChange={(e) => onChange({ ...p, onFull: e.target.value as 'ignore' | 'reject' | 'new_row' })}>
+            <option value="ignore">ไม่ทำอะไร</option><option value="reject">แจ้งว่าครบแล้ว</option><option value="new_row">เริ่มรอบใหม่ (เพิ่มแถวใหม่ เก็บแถวเดิมไว้)</option>
+          </Select>
+        </Field>
+      )}
     </div>
   );
 }

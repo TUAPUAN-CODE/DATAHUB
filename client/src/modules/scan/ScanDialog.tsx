@@ -24,7 +24,7 @@ export function ScanDialog({ open, onClose, sheetId, profiles, onDone }: { open:
     try {
       const r = await scanApi.scan(sheetId, t, profileId);
       beep(true);
-      setLog((l) => [{ at: Date.now(), text: t, ok: true, message: `${r.action === 'created' ? 'เพิ่มแถว' : 'อัปเดตแถว'} #${r.rowNo} (${r.profile.name})` }, ...l].slice(0, 30));
+      setLog((l) => [{ at: Date.now(), text: t, ok: true, message: `${r.action === 'created' ? 'เพิ่มแถว' : r.action === 'ignored' ? 'ไม่เปลี่ยน (ลงเวลาครบแล้ว) แถว' : 'อัปเดตแถว'} #${r.rowNo}${r.stamped ? ` — ลงเวลา “${r.stamped}”` : ''} (${r.profile.name})` }, ...l].slice(0, 30));
       onDone();
     } catch (e) {
       beep(false);

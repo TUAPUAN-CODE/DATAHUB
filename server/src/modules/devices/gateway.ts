@@ -1,8 +1,9 @@
 import net from 'net';
 import { q, T } from '../../config/db';
 import { logger } from '../../shared/logger';
-import { createFrameParser, isValidEpc } from './rfidFrame';
+import { createFrameParser, DEFAULT_INIT_HEX, DEFAULT_START_HEX, isHex, isValidEpc, withChecksum } from './rfidFrame';
 import { handleDeviceValue } from './pipeline';
+import { purgeCooldowns } from './cooldown';
 
 /**
  * Keeps one TCP connection per enabled "rfid_tcp" device (reconnects with back-off, cuts a silent half-open line) and feeds EPCs to the pipeline.
@@ -19,7 +20,7 @@ const conns = new Map<string, Conn>();
 const setStatus = (id: string, status: string, error: string | null = null) =>
   q(`UPDATE Devices SET status = @s, last_error = @e WHERE device_id = @d`, { s: T.text(status), e: T.text(error), d: T.uuid(id) }).catch(() => undefined);
 
-function connect(id: string, name: string, host: string, port: number): Conn {
+function connect(id: string, name: string, host: string, port: number, initHex: string | null, startHex: string | null): Conn {
   let sock: net.Socket | null = null;
   let timer: NodeJS.Timeout | null = null;
   let silence: NodeJS.Timeout | null = null;
@@ -43,7 +44,14 @@ function connect(id: string, name: string, host: string, port: number): Conn {
     sock = net.createConnection({ host, port });
     sock.setTimeout(CONNECT_TIMEOUT_MS, () => { if (!sock?.remoteAddress) sock?.destroy(new Error('เชื่อมต่อหมดเวลา')); else sock.setTimeout(0); });
     sock.setKeepAlive(true, 15_000);
-    sock.on('connect', () => { attempt = 0; sock?.setTimeout(0); void setStatus(id, 'connected'); logger.info(`RFID ${name}: เชื่อมต่อ ${host}:${port}`); armSilence(); });
+    sock.on('connect', () => {
+      attempt = 0; sock?.setTimeout(0); void setStatus(id, 'connected'); logger.info(`RFID ${name}: เชื่อมต่อ ${host}:${port}`); armSilence();
+      // the reader sends tags only after these two commands (same as PFCM's RFIDc1.js)
+      const i = initHex && isHex(initHex) ? initHex : DEFAULT_INIT_HEX;
+      const st = startHex && isHex(startHex) ? startHex : DEFAULT_START_HEX;
+      sock?.write(withChecksum(i));
+      sock?.write(Buffer.from(st, 'hex'));
+    });
     sock.on('data', (d) => {
       armSilence();
       for (const epc of parser.push(d)) if (isValidEpc(epc)) void handleDeviceValue(id, epc).catch((e) => logger.error(`RFID ${name}: ${(e as Error).message}`));
@@ -52,17 +60,21 @@ function connect(id: string, name: string, host: string, port: number): Conn {
     sock.on('close', () => { if (silence) clearTimeout(silence); if (!stopped) { void setStatus(id, 'disconnected'); retry(); } });
   }
   open();
-  return { key: `${host}:${port}|${name}`, stop: () => { stopped = true; if (timer) clearTimeout(timer); if (silence) clearTimeout(silence); sock?.destroy(); void setStatus(id, 'off'); } };
+  return { key: `${host}:${port}|${name}|${initHex ?? ''}|${startHex ?? ''}`, stop: () => { stopped = true; if (timer) clearTimeout(timer); if (silence) clearTimeout(silence); sock?.destroy(); void setStatus(id, 'off'); } };
+}
+
+export async function syncGatewayNow(): Promise<void> {
+  if (process.env.GATEWAY_ENABLED === '1') await sync().catch((e) => logger.error(`RFID gateway sync failed: ${(e as Error).message}`));
 }
 
 async function sync() {
-  const rows = await q(`SELECT device_id, device_name, host, port FROM Devices WHERE kind = N'rfid_tcp' AND enabled = 1 AND host IS NOT NULL AND port IS NOT NULL`);
+  const rows = await q(`SELECT device_id, device_name, host, port, init_hex, start_hex FROM Devices WHERE kind = N'rfid_tcp' AND enabled = 1 AND host IS NOT NULL AND port IS NOT NULL`);
   const want = new Map(rows.map((r) => [String(r.device_id).toLowerCase(), r]));
   for (const [id, c] of conns) {
     const w = want.get(id);
-    if (!w || c.key !== `${w.host}:${w.port}|${w.device_name}`) { c.stop(); conns.delete(id); }
+    if (!w || c.key !== `${w.host}:${w.port}|${w.device_name}|${w.init_hex ?? ''}|${w.start_hex ?? ''}`) { c.stop(); conns.delete(id); }
   }
-  for (const [id, r] of want) if (!conns.has(id)) conns.set(id, connect(id, r.device_name, r.host, Number(r.port)));
+  for (const [id, r] of want) if (!conns.has(id)) conns.set(id, connect(id, r.device_name, r.host, Number(r.port), r.init_hex ?? null, r.start_hex ?? null));
 }
 
 export function startGateway(): void {
@@ -71,5 +83,6 @@ export function startGateway(): void {
   tick();
   setInterval(tick, SYNC_MS).unref();
   setInterval(() => void q(`DELETE FROM DeviceEvents WHERE received_at < DATEADD(DAY, -30, SYSUTCDATETIME())`).catch(() => undefined), 6 * 3600_000).unref();
+  setInterval(() => void purgeCooldowns(), 6 * 3600_000).unref();
   logger.info('RFID gateway on');
 }

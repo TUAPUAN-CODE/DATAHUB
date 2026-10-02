@@ -13,7 +13,17 @@ export interface ScanProfile {
   keyColumnId?: string | null;
   /** update, row not found: make a new row or refuse */
   onMiss?: 'create' | 'reject' | null;
+  /**
+   * Time stamps, in order (e.g. [เข้าห้องเย็น, ออกห้องเย็น]): each scan writes the current time in the FIRST column still empty —
+   * first scan = in, second scan of the same card = out. The newest row of the key is used.
+   */
+  stamps?: string[] | null;
+  /** every stamp column is already filled: do nothing / refuse / start a new row (a new round of the same card) */
+  onFull?: 'ignore' | 'reject' | 'new_row' | null;
 }
+
+/** index of the first empty stamp column, or -1 when all are filled */
+export const firstEmptyStamp = (filled: boolean[]): number => filled.findIndex((f) => !f);
 
 export const splitScan = (text: string, delimiter: string): string[] => {
   const d = delimiter === '\\t' ? '\t' : delimiter;

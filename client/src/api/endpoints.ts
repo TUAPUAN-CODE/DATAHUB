@@ -50,6 +50,7 @@ export interface ScanProfile {
   match?: { prefix?: string | null; regex?: string | null; fieldCount?: number | null } | null;
   fields: { index: number; columnId: string }[];
   action: 'create' | 'update'; keyColumnId?: string | null; onMiss?: 'create' | 'reject' | null;
+  stamps?: string[] | null; onFull?: 'ignore' | 'reject' | 'new_row' | null;
 }
 export interface MixCfg { deductColumnId: string; keyColumnId?: string | null; inheritColumnIds?: string[] | null; sameColumnIds?: string[] | null }
 export interface LinesCfg { lineSheetId: string; displayColumnIds?: string[] | null; actions?: { label: string; columnId: string; kind: 'now' | 'value'; value?: string | null }[] | null }

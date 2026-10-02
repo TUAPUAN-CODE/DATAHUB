@@ -45,3 +45,14 @@ export function createFrameParser() {
 
 /** Not 24 hex chars, or one character repeated (000… / FFF…) = noise */
 export const isValidEpc = (epc: string) => /^[0-9A-F]{24}$/.test(epc) && !/^(.)\1+$/.test(epc);
+
+/** Commands PFCM's RFIDc1.js sends when it connects: the reader streams tags only after them */
+export const DEFAULT_INIT_HEX = '7CFFFF823200D2';        // checksum is added (two's complement of the byte sum)
+export const DEFAULT_START_HEX = '7CFFFF20000501000200C896'; // sent as is
+export function withChecksum(hex: string): Buffer {
+  const buf = Buffer.from(hex, 'hex');
+  let sum = 0;
+  for (const b of buf) sum += b;
+  return Buffer.concat([buf, Buffer.from([(~sum + 1) & 0xff])]);
+}
+export const isHex = (s: string) => /^([0-9A-Fa-f]{2})+$/.test(s.trim());

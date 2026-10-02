@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Field, Select, TextInput, Toggle } from '@/components/ui/Inputs';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState, PageHeader } from '@/components/ui/misc';
-import { Device, DeviceEvent, devicesApi, STATUS_LABEL } from '@/modules/devices/api';
+import { DEFAULT_INIT_HEX, DEFAULT_START_HEX, Device, DeviceEvent, devicesApi, STATUS_LABEL } from '@/modules/devices/api';
 
 const msg = (e: unknown) => (e as { response?: { data?: { error?: { message?: string } } }; message?: string }).response?.data?.error?.message ?? (e as Error).message;
 
@@ -17,7 +17,8 @@ export default function DevicesPage() {
   const [events, setEvents] = useState<DeviceEvent[]>([]);
   const [add, setAdd] = useState(false);
   const [keyShown, setKeyShown] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', kind: 'rfid_tcp', host: '', port: '49152' });
+  const [form, setForm] = useState({ name: '', kind: 'rfid_tcp', host: '', port: '49152', initHex: '', startHex: '' });
+  const [editId, setEditId] = useState<string | null>(null);
   const [sim, setSim] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -34,9 +35,13 @@ export default function DevicesPage() {
   const create = async () => {
     setBusy(true);
     try {
-      const r = await devicesApi.create({ name: form.name, kind: form.kind, host: form.kind === 'rfid_tcp' ? form.host : null, port: form.kind === 'rfid_tcp' ? Number(form.port) : null });
-      setAdd(false); setForm({ name: '', kind: 'rfid_tcp', host: '', port: '49152' });
-      if (r.apiKey) setKeyShown(r.apiKey);
+      if (editId) {
+        await devicesApi.update(editId, { name: form.name, host: form.host, port: Number(form.port), initHex: form.initHex, startHex: form.startHex });
+      } else {
+        const r = await devicesApi.create({ name: form.name, kind: form.kind, host: form.kind === 'rfid_tcp' ? form.host : null, port: form.kind === 'rfid_tcp' ? Number(form.port) : null, initHex: form.initHex || null, startHex: form.startHex || null });
+        if (r.apiKey) setKeyShown(r.apiKey);
+      }
+      setAdd(false); setEditId(null); setForm({ name: '', kind: 'rfid_tcp', host: '', port: '49152', initHex: '', startHex: '' });
       await load();
     } catch (e) { toast.error(e); } finally { setBusy(false); }
   };
@@ -55,7 +60,7 @@ export default function DevicesPage() {
       <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
         <div className="space-y-2">
           {devices.map((d) => {
-            const st = STATUS_LABEL[d.status] ?? STATUS_LABEL.off;
+            const st = STATUS_LABEL[d.enabled && d.kind === 'rfid_tcp' && !gateway ? 'waiting' : d.status] ?? STATUS_LABEL.off;
             return (
               <div key={d.id} onClick={() => setSel(d)} className={`ds-card cursor-pointer space-y-1 p-3 ${sel?.id === d.id ? 'ring-2 ring-primary' : ''}`}>
                 <div className="flex items-center gap-2">
@@ -73,7 +78,7 @@ export default function DevicesPage() {
         <div className="ds-card space-y-3 p-4">
           {sel ? (
             <>
-              <div className="flex items-center gap-2"><p className="flex-1 text-base font-semibold">{sel.name}</p><Button size="sm" variant="ghost" className="!text-danger" icon={<Trash2 className="h-4 w-4" />} onClick={() => void remove(sel)}>ลบ</Button></div>
+              <div className="flex items-center gap-2"><p className="flex-1 text-base font-semibold">{sel.name}</p><Button size="sm" variant="ghost" onClick={() => { setEditId(sel.id); setForm({ name: sel.name, kind: sel.kind, host: sel.host ?? '', port: String(sel.port ?? 49152), initHex: sel.initHex ?? '', startHex: sel.startHex ?? '' }); setAdd(true); }}>แก้ไข</Button><Button size="sm" variant="ghost" className="!text-danger" icon={<Trash2 className="h-4 w-4" />} onClick={() => void remove(sel)}>ลบ</Button></div>
               <div className="flex gap-2">
                 <TextInput value={sim} onChange={(e) => setSim(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void simulate()} placeholder="จำลองการอ่าน: พิมพ์ EPC / ค่า แล้วกด Enter" className="!h-9 flex-1 font-mono" />
                 <Button size="sm" variant="secondary" onClick={() => void simulate()} disabled={!sim.trim()}>ส่งค่าทดสอบ</Button>
@@ -93,11 +98,21 @@ export default function DevicesPage() {
         </div>
       </div>
 
-      <Modal open={add} onClose={() => setAdd(false)} size="md" title="เพิ่มอุปกรณ์" footer={<><Button variant="secondary" onClick={() => setAdd(false)}>ยกเลิก</Button><Button onClick={create} loading={busy} disabled={!form.name.trim() || (form.kind === 'rfid_tcp' && (!form.host.trim() || !form.port))}>เพิ่ม</Button></>}>
+      <Modal open={add} onClose={() => { setAdd(false); setEditId(null); }} size="md" title={editId ? 'แก้ไขอุปกรณ์' : 'เพิ่มอุปกรณ์'} footer={<><Button variant="secondary" onClick={() => { setAdd(false); setEditId(null); }}>ยกเลิก</Button><Button onClick={create} loading={busy} disabled={!form.name.trim() || (form.kind === 'rfid_tcp' && (!form.host.trim() || !form.port))}>{editId ? 'บันทึก' : 'เพิ่ม'}</Button></>}>
         <div className="space-y-3">
           <Field label="ชื่ออุปกรณ์"><TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="เช่น Reader ห้องเย็น 1" /></Field>
-          <Field label="ชนิด"><Select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}><option value="rfid_tcp">เครื่องอ่าน RFID (TCP)</option><option value="http">HTTP / IoT (ส่งค่าเข้ามาเอง)</option></Select></Field>
+          <Field label="ชนิด"><Select disabled={!!editId} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}><option value="rfid_tcp">เครื่องอ่าน RFID (TCP)</option><option value="http">HTTP / IoT (ส่งค่าเข้ามาเอง)</option></Select></Field>
           {form.kind === 'rfid_tcp' && <div className="grid grid-cols-[1fr_8rem] gap-2"><Field label="IP"><TextInput value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} className="font-mono" /></Field><Field label="พอร์ต"><TextInput type="number" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} /></Field></div>}
+          {form.kind === 'rfid_tcp' && (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-muted">ขั้นสูง: คำสั่งเริ่มอ่านของเครื่องอ่าน (เลขฐาน 16)</summary>
+              <div className="mt-2 space-y-2">
+                <p className="text-xs text-muted">ส่งให้เครื่องอ่านทุกครั้งที่เชื่อมต่อ เพื่อให้เริ่มส่งแท็ก (ค่าว่าง = ใช้ค่าเดียวกับ PFCM เดิม ไม่ต้องกรอก) — EPC ที่อ่านได้ระบบแยกเป็น hex ให้เอง</p>
+                <Field label="คำสั่งที่ 1 (ระบบเติม checksum ให้)"><TextInput value={form.initHex} onChange={(e) => setForm({ ...form, initHex: e.target.value })} placeholder={DEFAULT_INIT_HEX} className="font-mono" /></Field>
+                <Field label="คำสั่งที่ 2 (ส่งตามที่พิมพ์)"><TextInput value={form.startHex} onChange={(e) => setForm({ ...form, startHex: e.target.value })} placeholder={DEFAULT_START_HEX} className="font-mono" /></Field>
+              </div>
+            </details>
+          )}
           <p className="text-xs text-muted">อุปกรณ์ที่เพิ่มใหม่จะ “ปิดอยู่” จนกว่าจะเปิดสวิตช์</p>
         </div>
       </Modal>

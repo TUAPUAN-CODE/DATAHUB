@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectProfile, parseScan, ScanProfile, splitScan } from './parse';
+import { detectProfile, firstEmptyStamp, parseScan, ScanProfile, splitScan } from './parse';
 
 const A: ScanProfile = { id: 'a', name: 'ถาด', delimiter: '|', fields: [{ index: 1, columnId: 'code' }, { index: 2, columnId: 'batch' }, { index: 3, columnId: 'map' }, { index: 4, columnId: 'qty' }, { index: 5, columnId: 'unit' }], action: 'create' };
 const B: ScanProfile = { id: 'b', name: 'สลีป', delimiter: ' | ', match: { prefix: '14M', fieldCount: 7 }, fields: [{ index: 4, columnId: 'map' }], action: 'update', keyColumnId: 'map' };
@@ -21,4 +21,11 @@ test('detect the profile: most criteria wins, a profile needing missing pieces d
   assert.equal(detectProfile('14L11DFF | BATCH123 | 12345 | 25 | KG.', [A, B])?.id, 'a');
   assert.equal(detectProfile('only one', [A, B]), null);
   assert.equal(detectProfile('x | y | z | 1 | 2', [{ ...A, match: { regex: '^Q' } }]), null);
+});
+
+test('stamps go to the first empty column in order', () => {
+  assert.equal(firstEmptyStamp([false, false]), 0);
+  assert.equal(firstEmptyStamp([true, false]), 1);
+  assert.equal(firstEmptyStamp([true, true]), -1);
+  assert.equal(firstEmptyStamp([false, true]), 0);
 });

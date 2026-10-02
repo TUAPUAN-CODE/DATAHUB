@@ -5,7 +5,10 @@ import { q, q1, T } from '../../config/db';
 import { requireRole } from '../../middleware/auth';
 import { ah, badRequest, notFound, ok, parse, pid, zId } from '../../shared/http';
 import { LV, requireSheet } from '../../shared/permissions';
+import { readSettings, writeSettingsKey } from '../../services/sheetSettings';
 import { handleDeviceValue } from './pipeline';
+import { syncGatewayNow } from './gateway';
+import { isHex } from './rfidFrame';
 
 /** Public: an HTTP / IoT sender posts a value with its key (no login) */
 export const deviceIngest = Router();
@@ -22,32 +25,38 @@ deviceIngest.post('/devices/ingest', ah(async (req, res) => {
 
 const router = Router();
 const admin = requireRole('master', 'admin');
-const map = (d: any) => ({ id: d.device_id, name: d.device_name, kind: d.kind, host: d.host, port: d.port, enabled: !!d.enabled, status: d.status, lastSeen: d.last_seen, lastError: d.last_error, bindings: Number(d.n_bind ?? 0) });
+const map = (d: any) => ({ id: d.device_id, name: d.device_name, kind: d.kind, host: d.host, port: d.port, initHex: d.init_hex ?? null, startHex: d.start_hex ?? null, enabled: !!d.enabled, status: d.status, lastSeen: d.last_seen, lastError: d.last_error, bindings: Number(d.n_bind ?? 0) });
 
 router.get('/devices', admin, ah(async (_req, res) => {
-  const rows = await q(`SELECT d.device_id, d.device_name, d.kind, d.host, d.port, d.enabled, d.status, d.last_seen, d.last_error,
+  const rows = await q(`SELECT d.device_id, d.device_name, d.kind, d.host, d.port, d.init_hex, d.start_hex, d.enabled, d.status, d.last_seen, d.last_error,
       (SELECT COUNT(*) FROM DeviceBindings b WHERE b.device_id = d.device_id AND b.enabled = 1) AS n_bind FROM Devices d ORDER BY d.device_name`);
   ok(res, { devices: rows.map(map), gateway: process.env.GATEWAY_ENABLED === '1' });
 }));
 
-const body = z.object({ name: z.string().trim().min(1).max(100), kind: z.enum(['rfid_tcp', 'http']), host: z.string().trim().max(200).nullish(), port: z.number().int().min(1).max(65535).nullish() });
+const body = z.object({ name: z.string().trim().min(1).max(100), kind: z.enum(['rfid_tcp', 'http']), host: z.string().trim().max(200).nullish(), port: z.number().int().min(1).max(65535).nullish(), initHex: z.string().trim().max(200).nullish(), startHex: z.string().trim().max(200).nullish() });
+const hexOk = (h?: string | null) => !h || isHex(h);
 
 router.post('/devices', admin, ah(async (req, res) => {
   const b = parse(body, req.body);
   if (b.kind === 'rfid_tcp' && (!b.host || !b.port)) throw badRequest('เครื่องอ่าน RFID ต้องระบุ IP และพอร์ต');
+  if (!hexOk(b.initHex) || !hexOk(b.startHex)) throw badRequest('คำสั่งเริ่มอ่านต้องเป็นเลขฐาน 16 เป็นคู่ เช่น 7CFFFF20');
   const apiKey = b.kind === 'http' ? crypto.randomBytes(24).toString('hex') : null;
-  const r = await q1(`INSERT INTO Devices (device_name, kind, host, port, api_key_hash, created_by) OUTPUT inserted.device_id VALUES (@n, @k, @h, @p, @a, @u)`,
-    { n: T.text(b.name), k: T.text(b.kind), h: T.text(b.kind === 'rfid_tcp' ? b.host ?? null : null), p: T.int(b.kind === 'rfid_tcp' ? b.port ?? null : null), a: T.text(apiKey ? crypto.createHash('sha256').update(apiKey).digest('hex') : null), u: T.uuid(req.user!.id) });
+  const r = await q1(`INSERT INTO Devices (device_name, kind, host, port, api_key_hash, init_hex, start_hex, created_by) OUTPUT inserted.device_id VALUES (@n, @k, @h, @p, @a, @i, @st, @u)`,
+    { n: T.text(b.name), k: T.text(b.kind), i: T.text(b.kind === 'rfid_tcp' ? b.initHex || null : null), st: T.text(b.kind === 'rfid_tcp' ? b.startHex || null : null), h: T.text(b.kind === 'rfid_tcp' ? b.host ?? null : null), p: T.int(b.kind === 'rfid_tcp' ? b.port ?? null : null), a: T.text(apiKey ? crypto.createHash('sha256').update(apiKey).digest('hex') : null), u: T.uuid(req.user!.id) });
+  void syncGatewayNow();
   ok(res, { id: r!.device_id, apiKey }, 201); // the key is shown only now
 }));
 
 router.put('/devices/:id', admin, ah(async (req, res) => {
   const b = parse(body.partial().extend({ enabled: z.boolean().optional() }), req.body);
+  if (!hexOk(b.initHex) || !hexOk(b.startHex)) throw badRequest('คำสั่งเริ่มอ่านต้องเป็นเลขฐาน 16 เป็นคู่ เช่น 7CFFFF20');
   const cur = await q1(`SELECT device_id, kind FROM Devices WHERE device_id = @d`, { d: T.uuid(pid(req)) });
   if (!cur) throw notFound('ไม่พบอุปกรณ์');
   await q(`UPDATE Devices SET device_name = ISNULL(@n, device_name), host = CASE WHEN kind = N'rfid_tcp' THEN ISNULL(@h, host) ELSE host END, port = CASE WHEN kind = N'rfid_tcp' THEN ISNULL(@p, port) ELSE port END,
+           init_hex = CASE WHEN kind = N'rfid_tcp' AND @i IS NOT NULL THEN NULLIF(@i, N'-') ELSE init_hex END, start_hex = CASE WHEN kind = N'rfid_tcp' AND @st IS NOT NULL THEN NULLIF(@st, N'-') ELSE start_hex END,
            enabled = ISNULL(@e, enabled), status = CASE WHEN @e = 0 THEN N'off' ELSE status END WHERE device_id = @d`,
-    { n: T.text(b.name ?? null), h: T.text(b.host ?? null), p: T.int(b.port ?? null), e: T.bit(b.enabled ?? null), d: T.uuid(cur.device_id) });
+    { n: T.text(b.name ?? null), h: T.text(b.host ?? null), p: T.int(b.port ?? null), i: T.text(b.initHex === undefined || b.initHex === null ? null : b.initHex || '-'), st: T.text(b.startHex === undefined || b.startHex === null ? null : b.startHex || '-'), e: T.bit(b.enabled ?? null), d: T.uuid(cur.device_id) });
+  void syncGatewayNow();
   ok(res, { saved: true });
 }));
 
@@ -79,7 +88,8 @@ router.get('/sheets/:id/devices', ah(async (req, res) => {
   const devices = await q(`SELECT device_id, device_name, kind, status FROM Devices ORDER BY device_name`);
   const binds = await q(`SELECT device_id, enabled, profile_id FROM DeviceBindings WHERE sheet_id = @s`, { s: T.uuid(sheetId) });
   const by = new Map(binds.map((b) => [String(b.device_id).toLowerCase(), b]));
-  ok(res, { devices: devices.map((d) => { const b = by.get(String(d.device_id).toLowerCase()); return { id: d.device_id, name: d.device_name, kind: d.kind, status: d.status, bound: !!b, enabled: !!b?.enabled, profileId: b?.profile_id ?? null }; }) });
+  const cooldownMin = Number((await readSettings(sheetId)).devices?.cooldownMin) || 0;
+  ok(res, { cooldownMin, devices: devices.map((d) => { const b = by.get(String(d.device_id).toLowerCase()); return { id: d.device_id, name: d.device_name, kind: d.kind, status: d.status, bound: !!b, enabled: !!b?.enabled, profileId: b?.profile_id ?? null }; }) });
 }));
 
 router.put('/sheets/:id/devices/:deviceId', ah(async (req, res) => {
@@ -94,6 +104,15 @@ router.put('/sheets/:id/devices/:deviceId', ah(async (req, res) => {
      WHEN MATCHED THEN UPDATE SET enabled = @e, profile_id = @p, run_as_user = @u
      WHEN NOT MATCHED THEN INSERT (device_id, sheet_id, enabled, profile_id, run_as_user) VALUES (@d, @s, @e, @p, @u);`,
     { d: T.uuid(dev.device_id), s: T.uuid(sheetId), e: T.bit(b.enabled), p: T.text(b.profileId ?? null), u: T.uuid(u.id) });
+  ok(res, { saved: true });
+}));
+
+/** Waiting time of a sheet: the same card is not used again within N minutes — shared by every reader that writes into the sheet */
+router.put('/sheets/:id/devices-settings', ah(async (req, res) => {
+  const sheetId = pid(req);
+  await requireSheet(req.user!, sheetId, LV.manage);
+  const b = parse(z.object({ cooldownMin: z.number().min(0).max(1440) }), req.body);
+  await writeSettingsKey(sheetId, 'devices', b.cooldownMin > 0 ? { cooldownMin: b.cooldownMin } : null);
   ok(res, { saved: true });
 }));
 

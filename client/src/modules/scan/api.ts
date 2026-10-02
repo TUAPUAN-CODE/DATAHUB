@@ -2,7 +2,7 @@ import { del, get, post, put } from '@/api/client';
 import type { LinesCfg, MixCfg, ScanProfile } from '@/api/endpoints';
 import type { Row } from '@/types';
 
-export type ScanResult = { action: 'created' | 'updated'; rowNo: number; profile: { id: string; name: string }; row: Row };
+export type ScanResult = { action: 'created' | 'updated' | 'ignored'; stamped?: string | null; rowNo: number; profile: { id: string; name: string }; row: Row };
 export const linesApi = {
   save: (sheetId: string, lines: LinesCfg | null) => put(`/sheets/${sheetId}/lines/settings`, { lines }),
   list: (sheetId: string, rowId: string) => get<{ lines: Row[] }>(`/sheets/${sheetId}/rows/${rowId}/lines`),
