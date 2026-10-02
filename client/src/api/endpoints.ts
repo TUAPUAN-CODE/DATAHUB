@@ -45,7 +45,14 @@ export const filesApi = {
   accessible: (q = '') => get<{ id: string; name: string; color: string; folderId: string; path: string }[]>('/files/accessible', { q }),
 };
 
-export interface SheetSettings { filterColumns?: string[] | null }
+export interface ScanProfile {
+  id: string; name: string; delimiter: string;
+  match?: { prefix?: string | null; regex?: string | null; fieldCount?: number | null } | null;
+  fields: { index: number; columnId: string }[];
+  action: 'create' | 'update'; keyColumnId?: string | null; onMiss?: 'create' | 'reject' | null;
+}
+export interface MixCfg { deductColumnId: string; keyColumnId?: string | null; inheritColumnIds?: string[] | null; sameColumnIds?: string[] | null }
+export interface SheetSettings { filterColumns?: string[] | null; scanProfiles?: ScanProfile[]; mix?: MixCfg }
 export interface SheetDetail {
   union?: UnionStatus | null;
   settings?: SheetSettings;
