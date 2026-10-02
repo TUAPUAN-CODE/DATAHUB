@@ -10,6 +10,6 @@ export const formulaApi = {
     if (!cache) cache = (await get<{ functions: FormulaFn[] }>('/formula/functions')).functions;
     return cache;
   },
-  validate: (sheetId: string, body: { expr: string; dataType: string; columnId?: string | null }) => post<FormulaCheck>(`/sheets/${sheetId}/formula/validate`, body),
+  validate: (sheetId: string, body: { expr: string; dataType: string; columnId?: string | null; sources?: { alias: string; sheetId: string }[] }) => post<FormulaCheck>(`/sheets/${sheetId}/formula/validate`, body),
   recompute: (sheetId: string) => post<{ queued: boolean; rows?: number; cellsChanged?: number }>(`/sheets/${sheetId}/formula/recompute`),
 };

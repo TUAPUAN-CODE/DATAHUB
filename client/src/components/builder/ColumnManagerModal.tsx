@@ -13,7 +13,7 @@ import { validationForEditor } from '@/modules/formula/expr';
 
 const toDraft = (c: Column, all: Column[]): ColumnDraft => ({
   key: c.id, id: c.id, name: c.name, dataType: c.dataType, isRequired: c.isRequired, width: c.width, defaultValue: c.defaultValue,
-  placeholder: c.placeholder, description: c.description, validation: validationForEditor(c.validation, all), options: c.options,
+  placeholder: c.placeholder, description: c.description, validation: validationForEditor(c, all), options: c.options,
 });
 
 export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, onSaved, fileId, fileName }: {

@@ -40,7 +40,8 @@ const stable = (v: unknown): string => {
 
 /** Formulas keep column ids, which differ between sheets: compare them by the column names they refer to */
 function comparableValidation(raw: string | null, names: Map<string, string>) {
-  const v = safeJson<{ formula?: { expr?: string } } | null>(raw, null);
+  const v = safeJson<{ formula?: { expr?: string }; alert?: Record<string, string | null> } | null>(raw, null);
+  if (v?.alert) for (const k of ['startColumnId', 'endColumnId', 'limitColumnId']) if (v.alert[k]) v.alert[k] = (names.get(String(v.alert[k]).toLowerCase()) ?? '?').toLowerCase();
   if (v?.formula?.expr) v.formula.expr = v.formula.expr.replace(/\[#([0-9a-fA-F-]{36})\]/g, (_m, id: string) => `[${(names.get(id.toLowerCase()) ?? '?').toLowerCase()}]`);
   return v;
 }

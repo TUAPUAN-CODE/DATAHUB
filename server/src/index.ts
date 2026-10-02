@@ -36,6 +36,7 @@ import unionRoutes from './routes/union';
 import { shareManageRouter, sharePublicRouter } from './routes/share';
 import formulaModule from './modules/formula/module';
 import exportArchiveModule from './modules/exportArchive/module';
+import './modules/alerts/module';
 import uploadRoutes from './routes/uploads';
 import userRoutes from './routes/users';
 

@@ -1,3 +1,4 @@
+import { alertColor } from '@/modules/alerts/level';
 import { displayValue } from '@/lib/format';
 import type { Column, Row } from '@/types';
 import { collectData, CurrentView, resolveColumns, SheetData } from './data';
@@ -120,7 +121,8 @@ function tableBlock(b: TableBlock, c: BuildCtx) {
         const more = imageUrls(v).length - nodes.length;
         return nodes.length ? { stack: [...nodes.map((n: any) => ({ ...n, margin: [0, 0, 0, 2] })), ...(more > 0 ? [{ text: `+${more}`, fontSize: 8, color: '#6B7280' }] : [])] } : { text: '' };
       }
-      return { text: displayValue(col, v), alignment: cellAlign(col, ref), fontSize: b.body.fontSize, color: b.body.color, lineHeight: b.body.lineHeight };
+      const alert = col.validation?.alert ? alertColor(col.validation.alert, r.values, c.now.getTime()) : null; // colour alerts, as of the time of printing
+      return { text: displayValue(col, v), alignment: cellAlign(col, ref), fontSize: b.body.fontSize, color: b.body.color, lineHeight: b.body.lineHeight, ...(alert ? { fillColor: alert.color } : {}) };
     }),
   ]);
   const summaryRow = () => {

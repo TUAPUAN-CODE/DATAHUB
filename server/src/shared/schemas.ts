@@ -20,7 +20,16 @@ export const validationSchema = z
     maxDate: z.string().max(30).nullish(),
     maxSelections: z.number().int().min(1).max(500).nullish(),
     allowEmpty: z.boolean().nullish(),
-    formula: z.object({ expr: z.string().trim().min(1).max(2000) }).nullish(),
+    formula: z.object({ expr: z.string().trim().min(1).max(2000), sources: z.array(z.object({ alias: z.string().trim().min(1).max(40), sheetId: z.string().max(60) })).max(10).optional() }).nullish(),
+    alert: z
+      .object({
+        startColumnId: zId,
+        endColumnId: zId.nullish(),
+        limitColumnId: zId,
+        normalColor: z.string().max(9).nullish(),
+        levels: z.array(z.object({ atPct: z.number().min(0).max(100000), color: z.string().max(9), label: z.string().max(40).nullish() })).min(1).max(8),
+      })
+      .nullish(),
     docNumber: z
       .object({
         template: z.string().trim().min(1).max(100),

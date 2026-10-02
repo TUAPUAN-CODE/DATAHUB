@@ -13,6 +13,8 @@ import { toast } from '@/store/ui';
 import type { CellValue, Column, Row } from '@/types';
 import { Anchor, MenuItemDef, MenuList, Popover } from '../ui/Popover';
 import { CellDisplay, CellEditor, Move } from './CellView';
+import { alertColor, tint } from '@/modules/alerts/level';
+import { useMinuteTick } from '@/modules/alerts/useMinuteTick';
 import type { CellChange, SheetView } from './useSheetView';
 
 interface Pos { r: number; c: number }
@@ -34,6 +36,13 @@ interface Props {
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 const EDIT_INLINE_TYPED = new Set(['varchar', 'text', 'int', 'float', 'url', 'email']);
+
+function cellStyle(base: React.CSSProperties | undefined, col: Column, values: Row['values'], now: number): React.CSSProperties | undefined {
+  const cfg = col.validation?.alert;
+  if (!cfg) return base;
+  const a = alertColor(cfg, values, now);
+  return a ? { ...base, backgroundColor: tint(a.color, 0.3), boxShadow: `inset 3px 0 0 ${a.color}` } : base;
+}
 
 export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHistory, onRowHistory, onFilterColumn, onColumnSettings, onDeleteRows, onSelectRows, onViewRow }: Props) {
   const { columns: cols, rows, prefs, setPrefs, query, setQuery, commit, users, flash } = view;
@@ -368,6 +377,8 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
   }, [bounds, sel, rows, cols]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- render ---------- */
+  // colour alerts: the clock only runs while a visible column has one (once a minute, in the browser — no server load)
+  const nowMs = useMinuteTick(cols.some((c) => c.validation?.alert));
   const stickyCell = (ri: number, ci: number) => {
     const frow = ri < fr;
     const fcol = ci < fc;
@@ -449,7 +460,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                       <td key={col.id} data-cell={`${ri}:${ci}`} role="gridcell" aria-selected={inSel(ri, ci)}
                         className={cn(inSel(ri, ci) && 'sel', isFocus && 'focus', colSel.includes(col.id) && 'colsel', col.isRequired && isEmpty(v) && 'req-empty', ci === fc - 1 && 'freeze-col-edge',
                           ri === fr - 1 && 'freeze-row-edge', flash.has(`${row.id}:${col.id}`) && 'cell-flash', col.dataType === 'boolean' && 'text-center')}
-                        style={stickyCell(ri, ci)}
+                        style={cellStyle(stickyCell(ri, ci), col, row.values, nowMs)}
                         title={col.isRequired && isEmpty(v) ? `"${col.name}" จำเป็นต้องกรอก` : undefined}
                         onMouseDown={(e) => {
                           if (e.button !== 0 || isEdit) return;

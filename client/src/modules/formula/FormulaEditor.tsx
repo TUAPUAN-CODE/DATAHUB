@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { Field, TextArea, Toggle } from '@/components/ui/Inputs';
-import type { ColumnDraft } from '@/types';
+import { Plus, Trash2 } from 'lucide-react';
+import { filesApi } from '@/api/endpoints';
+import { loadCols } from '@/lib/dashCols';
+import { FilePicker } from '@/components/files/FilePicker';
+import { Select } from '@/components/ui/Inputs';
+import type { Column, ColumnDraft, FormulaSource, Sheet } from '@/types';
 import { formulaApi, FormulaCheck, FormulaFn } from './api';
 
 /**
@@ -11,6 +16,11 @@ import { formulaApi, FormulaCheck, FormulaFn } from './api';
 export function FormulaEditor({ c, setV, siblings, sheetId }: { c: ColumnDraft; setV: (p: Record<string, unknown>) => void; siblings: ColumnDraft[]; sheetId?: string }) {
   const on = !!c.validation?.formula;
   const expr = c.validation?.formula?.expr ?? '';
+  const sources: FormulaSource[] = c.validation?.formula?.sources ?? [];
+  const setF = (p: { expr?: string; sources?: FormulaSource[] }) => {
+    const next = { expr, sources, ...p };
+    setV({ formula: next.sources?.length ? next : { expr: next.expr } });
+  };
   const ref = useRef<HTMLTextAreaElement>(null);
   const [fns, setFns] = useState<FormulaFn[]>([]);
   const [check, setCheck] = useState<FormulaCheck | null>(null);
@@ -23,10 +33,10 @@ export function FormulaEditor({ c, setV, siblings, sheetId }: { c: ColumnDraft; 
     if (!on || !sheetId || !expr.trim()) { setCheck(null); return; }
     let live = true;
     const t = setTimeout(() => {
-      formulaApi.validate(sheetId, { expr, dataType: c.dataType, columnId: c.id ?? null }).then((r) => live && setCheck(r)).catch(() => live && setCheck(null));
+      formulaApi.validate(sheetId, { expr, dataType: c.dataType, columnId: c.id ?? null, sources: sources.map((x) => ({ alias: x.alias, sheetId: x.sheetId })) }).then((r) => live && setCheck(r)).catch(() => live && setCheck(null));
     }, 450);
     return () => { live = false; clearTimeout(t); };
-  }, [expr, on, sheetId, c.dataType, c.id]);
+  }, [expr, on, sheetId, c.dataType, c.id, JSON.stringify(sources.map((x) => [x.alias, x.sheetId]))]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo(() => [...new Set(fns.map((f) => f.group))], [fns]);
   const refCols = siblings.filter((s) => s.id && s.key !== c.key && s.name.trim());
@@ -36,7 +46,7 @@ export function FormulaEditor({ c, setV, siblings, sheetId }: { c: ColumnDraft; 
     const a = el?.selectionStart ?? expr.length;
     const b = el?.selectionEnd ?? expr.length;
     const next = expr.slice(0, a) + text + expr.slice(b);
-    setV({ formula: { expr: next } });
+    setF({ expr: next });
     requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(a + text.length, a + text.length); });
   };
   const shown = fns.filter((f) => f.group === (group ?? groups[0]));
@@ -48,8 +58,9 @@ export function FormulaEditor({ c, setV, siblings, sheetId }: { c: ColumnDraft; 
       {on && (
         <>
           <Field label="สูตร" hint="อ้างอิงคอลัมน์ด้วย [ชื่อคอลัมน์] เช่น IF([น้ำหนัก] > 100, &quot;หนัก&quot;, &quot;ปกติ&quot;) — ผู้ใช้แก้ค่าในคอลัมน์นี้เองไม่ได้">
-            <TextArea ref={ref} rows={3} value={expr} onChange={(e) => setV({ formula: { expr: e.target.value } })} className="font-mono text-[13px]" invalid={check?.valid === false} placeholder='เช่น ROUND(DATEDIFF("hour", [เข้าห้องเย็น], [ออกห้องเย็น]), 1)' />
+            <TextArea ref={ref} rows={3} value={expr} onChange={(e) => setF({ expr: e.target.value })} className="font-mono text-[13px]" invalid={check?.valid === false} placeholder='เช่น ROUND(DATEDIFF("hour", [เข้าห้องเย็น], [ออกห้องเย็น]), 1)' />
           </Field>
+          <SourcesEditor sources={sources} onChange={(next) => setF({ sources: next })} onInsert={insert} />
           {check && (check.valid
             ? <p className="flex items-center gap-1.5 text-xs text-success"><CheckCircle2 className="h-4 w-4" />สูตรถูกต้อง</p>
             : <p className="flex items-start gap-1.5 text-xs text-danger"><XCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{check.message}{check.pos >= 0 && expr ? <> — ใกล้ “<span className="font-mono">{expr.slice(Math.max(0, check.pos), check.pos + 12)}</span>”</> : null}</span></p>)}
@@ -77,6 +88,59 @@ export function FormulaEditor({ c, setV, siblings, sheetId }: { c: ColumnDraft; 
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+/** Other files/sheets the formula reads: folder → sub-folder → file → sheet, then an alias used as @alias[Column] */
+function SourcesEditor({ sources, onChange, onInsert }: { sources: FormulaSource[]; onChange: (s: FormulaSource[]) => void; onInsert: (t: string) => void }) {
+  const update = (i: number, p: Partial<FormulaSource>) => onChange(sources.map((s, k) => (k === i ? { ...s, ...p } : s)));
+  const add = () => onChange([...sources, { alias: `ข้อมูล${sources.length + 1}`, sheetId: '' }]);
+  return (
+    <div className="space-y-2 rounded-lg border border-line bg-surface p-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-muted">ดึงข้อมูลจากไฟล์อื่น (ใช้กับ LOOKUP)</p>
+        <button type="button" onClick={add} className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-primary hover:bg-primary/10"><Plus className="h-3.5 w-3.5" />เพิ่มแหล่งข้อมูล</button>
+      </div>
+      {!sources.length && <p className="text-[11px] text-muted">เช่น ตารางเวลามาตรฐานของวัตถุดิบ: LOOKUP(@เกณฑ์[เตรียม→เย็น], @เกณฑ์[ประเภท], [ประเภท]) — ผู้ใช้ที่ไม่มีสิทธิ์เปิดไฟล์ต้นทางยังเห็นผลลัพธ์ในตารางนี้ได้</p>}
+      {sources.map((s, i) => <SourceRow key={i} s={s} onChange={(p) => update(i, p)} onRemove={() => onChange(sources.filter((_, k) => k !== i))} onInsert={onInsert} />)}
+    </div>
+  );
+}
+
+function SourceRow({ s, onChange, onRemove, onInsert }: { s: FormulaSource; onChange: (p: Partial<FormulaSource>) => void; onRemove: () => void; onInsert: (t: string) => void }) {
+  const [sheets, setSheets] = useState<Sheet[]>([]);
+  const [cols, setCols] = useState<Column[]>([]);
+  const fileId = s.fileId ?? null;
+  useEffect(() => {
+    if (!fileId) { setSheets([]); return; }
+    let live = true;
+    filesApi.get(fileId).then((r) => live && setSheets(r.sheets)).catch(() => live && setSheets([]));
+    return () => { live = false; };
+  }, [fileId]);
+  useEffect(() => {
+    let live = true;
+    if (s.sheetId) void loadCols(s.sheetId).then((x) => live && setCols(x.filter((k) => !k.isDeleted))).catch(() => live && setCols([]));
+    else setCols([]);
+    return () => { live = false; };
+  }, [s.sheetId]);
+  const picked = fileId ? { id: fileId, name: s.fileName ?? 'ไฟล์', path: '' } : null;
+  return (
+    <div className="space-y-1.5 rounded-lg bg-primary/[.04] p-2">
+      <div className="grid gap-2 md:grid-cols-[1fr_1fr_9rem_auto]">
+        <FilePicker value={picked} placeholder="เลือกไฟล์ต้นทาง" onChange={(f) => onChange({ fileId: f.id, fileName: f.name, sheetId: '', sheetName: null })} />
+        <Select value={s.sheetId} onChange={(e) => onChange({ sheetId: e.target.value, sheetName: sheets.find((x) => x.id === e.target.value)?.name ?? null })} disabled={!fileId}>
+          <option value="">{s.sheetId && s.sheetName ? s.sheetName : '— เลือกชีต —'}</option>
+          {sheets.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+        </Select>
+        <input value={s.alias} onChange={(e) => onChange({ alias: e.target.value.replace(/[^\p{L}\p{N}\p{M}_]/gu, '') })} className="ds-input h-10 px-2 font-mono text-sm" title="ชื่อเรียกใช้ในสูตร" placeholder="ชื่อเรียก" />
+        <button type="button" onClick={onRemove} className="rounded-lg p-2 text-muted hover:bg-danger/10 hover:text-danger" title="ลบ"><Trash2 className="h-4 w-4" /></button>
+      </div>
+      {!!cols.length && s.alias && (
+        <div className="flex flex-wrap gap-1.5">
+          {cols.map((k) => <button key={k.id} type="button" onClick={() => onInsert(`@${s.alias}[${k.name.replace(/\]/g, ']]')}]`)} className="rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] hover:border-primary/50 hover:text-primary">@{s.alias}[{k.name}]</button>)}
+        </div>
       )}
     </div>
   );

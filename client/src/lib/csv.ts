@@ -1,3 +1,4 @@
+import { alertColor } from '@/modules/alerts/level';
 import type { Column, Row } from '@/types';
 import { displayValue } from './format';
 
@@ -60,7 +61,12 @@ export async function downloadXlsx(filename: string, sheetName: string, columns:
       else if ((c.dataType === 'date' || c.dataType === 'datetime') && typeof v === 'string' && !Number.isNaN(Date.parse(v))) vals[c.id] = new Date(v.length === 10 ? `${v}T00:00:00Z` : v);
       else vals[c.id] = displayValue(c, v);
     }
-    ws.addRow(vals);
+    const added = ws.addRow(vals);
+    columns.forEach((c, i) => { // colour alerts, measured at the moment of export
+      const cfg = c.validation?.alert;
+      const a = cfg ? alertColor(cfg, r.values, Date.now()) : null;
+      if (a) added.getCell(i + 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${a.color.slice(1).toUpperCase()}` } };
+    });
   }
   columns.forEach((c, i) => { if (c.dataType === 'date') ws.getColumn(i + 2).numFmt = 'yyyy-mm-dd'; else if (c.dataType === 'datetime') ws.getColumn(i + 2).numFmt = 'yyyy-mm-dd hh:mm'; });
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length + 1 } };

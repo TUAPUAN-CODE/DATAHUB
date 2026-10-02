@@ -1,3 +1,4 @@
+import { AlertEditor } from '@/modules/alerts/AlertEditor';
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, ArrowUp, ChevronDown, GripVertical, Plus, Trash2, X } from 'lucide-react';
@@ -98,6 +99,7 @@ function ColumnDetails({ c, set, siblings, fileId, fileName, sheetId }: { c: Col
       <Field label="ข้อความตัวอย่างในช่องกรอก"><TextInput value={c.placeholder ?? ''} onChange={(e) => set({ placeholder: e.target.value })} /></Field>
       {c.dataType === 'doc_number' && <DocNumberEditor c={c} setV={setV} siblings={siblings} fileId={fileId} fileName={fileName} />}
       {canHaveFormula(c.dataType) && !isLookup && <FormulaEditor c={c} setV={setV} siblings={siblings} sheetId={sheetId} />}
+      {c.id && c.dataType !== 'image' && <AlertEditor c={c} setV={setV} siblings={siblings} />}
       {isSelect(c.dataType) && (
         <div className="space-y-3 md:col-span-2">
           <Segmented size="sm" value={isLookup ? 'lookup' : 'custom'} onChange={(m) => setV({ lookup: m === 'lookup' ? { sheetId: '', columnId: '', parent: null } : null })}

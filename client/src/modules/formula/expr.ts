@@ -12,9 +12,13 @@ export function canonicalToDisplay(expr: string, cols: { id?: string; name: stri
   return expr.replace(/\[#([0-9a-fA-F-]{36})\]/g, (_m, id: string) => `[${esc(byId.get(id.toLowerCase()) ?? '?')}]`);
 }
 
-/** Validation of a saved column, with the formula shown by column names (used when the editor opens) */
-export function validationForEditor(v: Validation | null | undefined, all: Column[]): Validation {
-  const base = { ...(v ?? {}) };
-  if (base.formula?.expr) base.formula = { expr: canonicalToDisplay(base.formula.expr, all) };
+/** Validation of a saved column, with the formula shown by names (used when the editor opens).
+ *  The server already wrote the readable form (also for @source[...]) in `col.formula` for managers. */
+export function validationForEditor(col: Pick<Column, 'validation' | 'formula'>, all: Column[]): Validation {
+  const base = { ...(col.validation ?? {}) };
+  if (base.formula?.expr) {
+    const sources = (base.formula.sources ?? []).map((s) => ({ ...s, ...(col.formula?.sources.find((x) => x.alias === s.alias) ?? {}) }));
+    base.formula = { expr: col.formula?.display ?? canonicalToDisplay(base.formula.expr, all), ...(sources.length ? { sources } : {}) };
+  }
   return base;
 }

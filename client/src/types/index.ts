@@ -35,10 +35,17 @@ export interface Validation {
   /** options come from a column of another sheet; `parent` limits them to rows matching a value in this row */
   lookup?: Lookup | null;
   /** computed column: expression (columns by id when stored, by name while editing) */
-  formula?: { expr: string } | null;
+  formula?: FormulaCfg | null;
+  /** colour by % of a standard time: (end or now) − start compared with the limit column (minutes) */
+  alert?: AlertCfg | null;
   /** auto-numbered document id, e.g. {PREFIX}-{YYMMDD}-{SEQ:3} */
   docNumber?: DocNumberCfg | null;
 }
+/** other sheets a formula reads: alias used in the formula as @alias[Column]; names are only for display (filled in by the server for managers) */
+export interface FormulaSource { alias: string; sheetId: string; fileId?: string | null; fileName?: string | null; sheetName?: string | null }
+export interface FormulaCfg { expr: string; sources?: FormulaSource[] }
+export interface AlertLevel { atPct: number; color: string; label?: string | null }
+export interface AlertCfg { startColumnId: string; endColumnId?: string | null; limitColumnId: string; normalColor?: string | null; levels: AlertLevel[] }
 export interface DocNumberCfg { template: string; prefixes?: string[] | null; prefixLookup?: Lookup | null; dateColumnId?: string | null }
 export interface Lookup { sheetId: string; columnId: string; parent?: { localColumnId: string; foreignColumnId: string } | null }
 export type CellValue = string | number | boolean | string[] | null;
@@ -47,6 +54,8 @@ export interface Column {
   id: string; sheetId: string; name: string; dataType: DataType; order: number; width: number; isRequired: boolean;
   defaultValue: CellValue; placeholder: string | null; description: string | null; validation: Validation;
   options: SelectOption[]; isDeleted?: boolean; deletedAt?: string | null;
+  /** managers only: readable formula + names of the files/sheets it reads */
+  formula?: { display: string; sources: FormulaSource[] } | null;
 }
 /** Column shape used by the builder / column editor before it is saved */
 export interface ColumnDraft {
