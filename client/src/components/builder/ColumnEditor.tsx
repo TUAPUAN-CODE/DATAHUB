@@ -10,6 +10,8 @@ import { FieldInput } from '../sheet/FieldInput';
 import { LookupEditor } from './LookupEditor';
 import { DOC_TOKENS, hasPrefixToken, renderDocPreview } from '@/lib/docNumber';
 import { Segmented, Toggle } from '../ui/Inputs';
+import { FormulaEditor } from '@/modules/formula/FormulaEditor';
+import { canHaveFormula } from '@/modules/formula/expr';
 
 function OptionsEditor({ options, onChange }: { options: SelectOption[]; onChange: (o: SelectOption[]) => void }) {
   const [draft, setDraft] = useState('');
@@ -86,7 +88,7 @@ function DocNumberEditor({ c, setV, siblings, fileId, fileName }: { c: ColumnDra
   );
 }
 
-function ColumnDetails({ c, set, siblings, fileId, fileName }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string }) {
+function ColumnDetails({ c, set, siblings, fileId, fileName, sheetId }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string; sheetId?: string }) {
   const v = c.validation ?? {};
   const setV = (p: Record<string, unknown>) => set({ validation: { ...v, ...p } });
   const isLookup = !!v.lookup;
@@ -95,6 +97,7 @@ function ColumnDetails({ c, set, siblings, fileId, fileName }: { c: ColumnDraft;
       <Field label="คำอธิบาย (แสดงเป็นคำแนะนำ)"><TextInput value={c.description ?? ''} onChange={(e) => set({ description: e.target.value })} /></Field>
       <Field label="ข้อความตัวอย่างในช่องกรอก"><TextInput value={c.placeholder ?? ''} onChange={(e) => set({ placeholder: e.target.value })} /></Field>
       {c.dataType === 'doc_number' && <DocNumberEditor c={c} setV={setV} siblings={siblings} fileId={fileId} fileName={fileName} />}
+      {canHaveFormula(c.dataType) && !isLookup && <FormulaEditor c={c} setV={setV} siblings={siblings} sheetId={sheetId} />}
       {isSelect(c.dataType) && (
         <div className="space-y-3 md:col-span-2">
           <Segmented size="sm" value={isLookup ? 'lookup' : 'custom'} onChange={(m) => setV({ lookup: m === 'lookup' ? { sheetId: '', columnId: '', parent: null } : null })}
@@ -132,7 +135,7 @@ function ColumnDetails({ c, set, siblings, fileId, fileName }: { c: ColumnDraft;
       )}
       {c.dataType === 'image' && <Field label="จำนวนรูปสูงสุดต่อเซลล์ (ว่าง = ไม่จำกัด)"><TextInput inputMode="numeric" value={v.maxSelections ?? ''} onChange={(e) => setV({ maxSelections: num(e.target.value) })} /></Field>}
       {c.dataType === 'multi_select' && <Field label="เลือกได้สูงสุด"><TextInput inputMode="numeric" value={v.maxSelections ?? ''} onChange={(e) => setV({ maxSelections: num(e.target.value) })} /></Field>}
-      {c.dataType !== 'doc_number' && (
+      {c.dataType !== 'doc_number' && !v.formula && (
         <Field label="ค่าเริ่มต้นเมื่อเพิ่มแถวใหม่">
           <FieldInput col={{ ...c, placeholder: 'ไม่มี', options: c.options ?? [], validation: v } as any} value={c.defaultValue ?? null} onChange={(d) => set({ defaultValue: d })} />
         </Field>
@@ -158,6 +161,7 @@ export function validateDrafts(cols: ColumnDraft[]): string | null {
       if (!dn?.template?.trim()) return `คอลัมน์ "${n}": กรุณากำหนดรูปแบบเลขที่`;
       if (hasPrefixToken(dn.template) && !(dn.prefixes?.length) && !(dn.prefixLookup?.sheetId && dn.prefixLookup.columnId)) return `คอลัมน์ "${n}": กำหนดรายการหัวเลข หรือเลือกตารางที่เก็บหัวเลข`;
     }
+    else if (c.validation?.formula && !c.validation.formula.expr.trim()) return `คอลัมน์ "${n}": กรุณาใส่สูตร หรือปิดการคำนวณด้วยสูตร`;
     else if (isSelect(c.dataType) && !(c.options ?? []).length) return `คอลัมน์ "${n}" ต้องมีตัวเลือกอย่างน้อย 1 รายการ`;
   }
   return null;
@@ -170,7 +174,7 @@ export const draftToPayload = (c: ColumnDraft) => ({
   options: isSelect(c.dataType) && !c.validation?.lookup ? (c.options ?? []).map((o) => ({ ...o, label: o.label.trim() || o.value })) : null,
 });
 
-export function ColumnEditor({ columns, onChange, lockedTypes, fileId, fileName }: { columns: ColumnDraft[]; onChange: (c: ColumnDraft[]) => void; lockedTypes?: boolean; fileId?: string; fileName?: string }) {
+export function ColumnEditor({ columns, onChange, lockedTypes, fileId, fileName, sheetId }: { columns: ColumnDraft[]; onChange: (c: ColumnDraft[]) => void; lockedTypes?: boolean; fileId?: string; fileName?: string; sheetId?: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const set = (key: string, p: Partial<ColumnDraft>) => onChange(columns.map((c) => (c.key === key ? { ...c, ...p } : c)));
@@ -234,7 +238,7 @@ export function ColumnEditor({ columns, onChange, lockedTypes, fileId, fileName 
             <AnimatePresence initial={false}>
               {open === c.key && (
                 <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
-                  <ColumnDetails c={c} set={(p) => set(c.key, p)} siblings={columns} fileId={fileId} fileName={fileName} />
+                  <ColumnDetails c={c} set={(p) => set(c.key, p)} siblings={columns} fileId={fileId} fileName={fileName} sheetId={sheetId} />
                 </motion.div>
               )}
             </AnimatePresence>

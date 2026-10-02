@@ -34,6 +34,8 @@ export interface Validation {
   allowEmpty?: boolean | null;
   /** options come from a column of another sheet; `parent` limits them to rows matching a value in this row */
   lookup?: Lookup | null;
+  /** computed column: expression (columns by id when stored, by name while editing) */
+  formula?: { expr: string } | null;
   /** auto-numbered document id, e.g. {PREFIX}-{YYMMDD}-{SEQ:3} */
   docNumber?: DocNumberCfg | null;
 }

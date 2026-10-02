@@ -108,7 +108,7 @@ export const rowsApi = {
 export interface BulkResult { updated: { rowId: string; columnId: string; value: CellValue; at: string; by: string }[]; unchanged: number; errors: { rowId: string; columnId: string; message: string; rowNo?: number; columnName?: string }[] }
 export const cellsApi = {
   update: (rowId: string, columnId: string, value: CellValue) =>
-    put<{ rowId: string; columnId: string; value: CellValue; at: string; by: string; unchanged?: boolean }>(`/rows/${rowId}/cells/${columnId}`, { value }),
+    put<{ rowId: string; columnId: string; value: CellValue; at: string; by: string; unchanged?: boolean; derived?: { rowId: string; columnId: string; value: CellValue; at: string; by: string }[] }>(`/rows/${rowId}/cells/${columnId}`, { value }),
   bulk: (sheetId: string, updates: { rowId: string; columnId: string; value: CellValue }[], partial = false, source = 'edit') =>
     post<BulkResult>(`/sheets/${sheetId}/cells/bulk`, { updates, partial, source }),
   history: (rowId: string, columnId: string) =>

@@ -9,10 +9,11 @@ import type { Column, ColumnDraft } from '@/types';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { ColumnEditor, draftToPayload, validateDrafts } from './ColumnEditor';
+import { validationForEditor } from '@/modules/formula/expr';
 
-const toDraft = (c: Column): ColumnDraft => ({
+const toDraft = (c: Column, all: Column[]): ColumnDraft => ({
   key: c.id, id: c.id, name: c.name, dataType: c.dataType, isRequired: c.isRequired, width: c.width, defaultValue: c.defaultValue,
-  placeholder: c.placeholder, description: c.description, validation: c.validation ?? {}, options: c.options,
+  placeholder: c.placeholder, description: c.description, validation: validationForEditor(c.validation, all), options: c.options,
 });
 
 export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, onSaved, fileId, fileName }: {
@@ -20,7 +21,7 @@ export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, o
 }) {
   const [drafts, setDrafts] = useState<ColumnDraft[]>([]);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) setDrafts(columns.map(toDraft)); }, [open, columns]);
+  useEffect(() => { if (open) setDrafts(columns.map((c) => toDraft(c, columns))); }, [open, columns]);
 
   const save = async () => {
     const err = validateDrafts(drafts);
@@ -41,7 +42,7 @@ export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, o
         }
         ids.push(d.id);
         const o = orig.get(d.id)!;
-        const before = JSON.stringify(draftToPayload(toDraft(o)));
+        const before = JSON.stringify(draftToPayload(toDraft(o, columns)));
         if (before === JSON.stringify(payload)) continue;
         try {
           await columnsApi.update(d.id, payload);
@@ -75,7 +76,7 @@ export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, o
     <Modal open={open} onClose={onClose} size="xl" icon={<Columns3 className="h-5 w-5" />} title="จัดการคอลัมน์" description="กำหนดชื่อ ชนิดข้อมูล การบังคับกรอก และกฎตรวจสอบของแต่ละคอลัมน์"
       footer={<><Button variant="secondary" onClick={onClose}>ยกเลิก</Button><Button onClick={save} loading={busy}>บันทึกการเปลี่ยนแปลง</Button></>}>
       <div className="max-h-[62vh] overflow-y-auto pr-1">
-        <ColumnEditor columns={drafts} onChange={setDrafts} fileId={fileId} fileName={fileName} />
+        <ColumnEditor columns={drafts} onChange={setDrafts} fileId={fileId} fileName={fileName} sheetId={sheetId} />
         {deleted.length > 0 && (
           <div className="mt-6">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">คอลัมน์ที่ถูกลบ</p>

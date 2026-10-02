@@ -6,7 +6,7 @@ import {
 import { cn } from '@/lib/cn';
 import { ColumnStat, rowsApi } from '@/api/endpoints';
 import { parseTsv, toTsv } from '@/lib/csv';
-import { TYPE_META } from '@/lib/columnTypes';
+import { isComputed, TYPE_META } from '@/lib/columnTypes';
 import { dependentsOf } from '@/lib/lookup';
 import { displayValue, fmtNumber, relTime } from '@/lib/format';
 import { toast } from '@/store/ui';
@@ -122,6 +122,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
     const row = rows[r];
     if (!col || !row) return;
     if (!canWrite) return toast.info('คุณมีสิทธิ์ดูข้อมูลเท่านั้น', 'ขอสิทธิ์แก้ไขได้จากเมนูของไฟล์');
+    if (isComputed(col)) return toast.info('คอลัมน์นี้คำนวณจากสูตรอัตโนมัติ', 'แก้ไขสูตรได้ที่ “ตั้งค่าคอลัมน์”');
     if (col.dataType === 'boolean') return void commit([{ rowId: row.id, columnId: col.id, value: !row.values[col.id] }]);
     setEditing({ r, c, initial: initial !== undefined && EDIT_INLINE_TYPED.has(col.dataType) ? initial : undefined });
   };
@@ -154,7 +155,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
       for (let c = bounds.c1; c <= bounds.c2; c++) {
         const row = rows[r];
         const col = cols[c];
-        if (row && col && !isEmpty(row.values[col.id])) changes.push({ rowId: row.id, columnId: col.id, value: null });
+        if (row && col && !isComputed(col) && !isEmpty(row.values[col.id])) changes.push({ rowId: row.id, columnId: col.id, value: null });
       }
     if (changes.length) void commit(changes, { partial: true, source: 'edit' });
   };
@@ -182,6 +183,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
       for (let c = bounds.c1; c <= cEnd; c++) {
         const v = single ? grid[0][0] : grid[r - bounds.r1]?.[c - bounds.c1];
         if (v === undefined) continue;
+        if (isComputed(cols[c])) continue;
         changes.push({ rowId: rows[r].id, columnId: cols[c].id, value: v === '' ? null : v });
       }
     const skipped = single ? 0 : grid.length - (rEnd - bounds.r1 + 1);
@@ -393,7 +395,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                     style={{ position: 'sticky', top: 0, left: ci < fc ? lefts[ci] : undefined, zIndex: ci < fc ? 28 : 26 }}
                     onContextMenu={(e) => { e.preventDefault(); setMenu({ anchor: { x: e.clientX, y: e.clientY }, kind: 'header', r: 0, c: ci }); }}>
                     <div className="flex h-full items-center gap-1.5" style={{ padding: `0 ${8 * z}px` }}>
-                      <span className="shrink-0 opacity-60 [&>svg]:h-[1em] [&>svg]:w-[1em]">{TYPE_META[c.dataType].icon}</span>
+                      {isComputed(c) ? <span title="คอลัมน์สูตร" className="shrink-0 font-serif text-[1.05em] font-bold italic text-primary">ƒ</span> : <span className="shrink-0 opacity-60 [&>svg]:h-[1em] [&>svg]:w-[1em]">{TYPE_META[c.dataType].icon}</span>}
                       <button onClick={(e) => pickColumn(c.id, e)} title={`${c.name}${c.description ? ` — ${c.description}` : ''}\nคลิกเพื่อเลือกคอลัมน์ (ดูจำนวนแถว/ผลรวม) · Ctrl+คลิก เลือกหลายคอลัมน์ · Shift+คลิก เลือกเป็นช่วง`}
                         className="min-w-0 flex-1 truncate text-left font-medium text-ink/85">
                         {c.name}{c.isRequired && <span className="ml-0.5 text-danger">*</span>}

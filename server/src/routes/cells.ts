@@ -16,7 +16,10 @@ router.put(
     const row = await q1(`SELECT sheet_id FROM Rows WHERE row_id = @r AND is_deleted = 0`, { r: T.uuid(rowId) });
     if (!row) throw notFound('ไม่พบแถว (อาจถูกลบแล้ว)');
     const result = await applyCellUpdates(req.user!, row.sheet_id, [{ rowId, columnId, value }], { req });
-    ok(res, result.updated[0] ?? { rowId, columnId, unchanged: true });
+    const mine = result.updated.find((u) => u.rowId === rowId && u.columnId === columnId);
+    // `derived` = cells a module (e.g. formula columns) recalculated because of this edit
+    const derived = result.updated.filter((u) => u !== mine);
+    ok(res, { ...(mine ?? { rowId, columnId, unchanged: true }), ...(derived.length ? { derived } : {}) });
   }),
 );
 

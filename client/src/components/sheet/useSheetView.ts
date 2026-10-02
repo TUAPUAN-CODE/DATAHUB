@@ -136,17 +136,21 @@ export function useSheetView(sheetId: string | null) {
     patchRows(changes);
     try {
       let applied: { rowId: string; columnId: string; value: CellValue; at: string; by: string }[] = [];
+      let derived: typeof applied = []; // cells recalculated by the server because of this edit (formula columns)
       if (changes.length === 1 && !opts.partial) {
         const r = await cellsApi.update(changes[0].rowId, changes[0].columnId, changes[0].value);
         if (!r.unchanged) applied = [{ rowId: r.rowId, columnId: r.columnId, value: r.value, at: r.at, by: r.by }];
+        derived = r.derived ?? [];
       } else {
         const r = await cellsApi.bulk(sheetId, changes, opts.partial ?? true, opts.source ?? 'edit');
-        applied = r.updated;
+        const asked = new Set(changes.map((c) => `${c.rowId}:${c.columnId}`));
+        applied = r.updated.filter((u) => asked.has(`${u.rowId}:${u.columnId}`));
+        derived = r.updated.filter((u) => !asked.has(`${u.rowId}:${u.columnId}`));
         if (r.errors.length) toast.error(`${r.errors.length} เซลล์ไม่ผ่านการตรวจสอบ: ${r.errors[0].message}`, 'บางเซลล์ไม่ได้บันทึก');
       }
       const got = new Set(applied.map((a) => `${a.rowId}:${a.columnId}`));
       revert(changes.filter((c) => !got.has(`${c.rowId}:${c.columnId}`)));
-      patchRows(applied.map((a) => ({ rowId: a.rowId, columnId: a.columnId, value: a.value, meta: { by: a.by, at: a.at } })));
+      patchRows([...applied, ...derived].map((a) => ({ rowId: a.rowId, columnId: a.columnId, value: a.value, meta: { by: a.by, at: a.at } })));
       if (me && applied.length)
         setPage((p) => (p && !p.users[me.id] ? { ...p, users: { ...p.users, [me.id]: { name: me.displayName, avatarUrl: me.avatarUrl } } } : p));
       if (opts.recordUndo !== false && applied.length) {

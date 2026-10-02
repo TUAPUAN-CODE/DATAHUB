@@ -5,7 +5,7 @@ import { ImportResult, rowsApi } from '@/api/endpoints';
 import { cn } from '@/lib/cn';
 import { downloadXlsx } from '@/lib/csv';
 import { normHeader, ParsedSheet, parseTableFile } from '@/lib/importFile';
-import { TYPE_META } from '@/lib/columnTypes';
+import { isComputed, TYPE_META } from '@/lib/columnTypes';
 import type { Column } from '@/types';
 import { Button } from '../ui/Button';
 import { Select, Toggle } from '../ui/Inputs';
@@ -31,7 +31,7 @@ export function ImportModal({ open, onClose, sheetId, sheetName, fileName, colum
   const [inserted, setInserted] = useState(0);
   const input = useRef<HTMLInputElement>(null);
 
-  const importable = useMemo(() => columns.filter((c) => c.dataType !== 'image'), [columns]);
+  const importable = useMemo(() => columns.filter((c) => c.dataType !== 'image' && !isComputed(c)), [columns]);
   const ws = sheets[wsIdx];
   const header = ws?.rows[0] ?? [];
   const dataRows = useMemo(() => (ws ? ws.rows.slice(hasHeader ? 1 : 0) : []), [ws, hasHeader]);
