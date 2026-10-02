@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectProfile, firstEmptyStamp, parseScan, ScanProfile, splitScan } from './parse';
+import { detectProfile, firstEmptyStamp, mergeFill, parseScan, ScanProfile, splitScan } from './parse';
 
 const A: ScanProfile = { id: 'a', name: 'ถาด', delimiter: '|', fields: [{ index: 1, columnId: 'code' }, { index: 2, columnId: 'batch' }, { index: 3, columnId: 'map' }, { index: 4, columnId: 'qty' }, { index: 5, columnId: 'unit' }], action: 'create' };
 const B: ScanProfile = { id: 'b', name: 'สลีป', delimiter: ' | ', match: { prefix: '14M', fieldCount: 7 }, fields: [{ index: 4, columnId: 'map' }], action: 'update', keyColumnId: 'map' };
@@ -28,4 +28,10 @@ test('stamps go to the first empty column in order', () => {
   assert.equal(firstEmptyStamp([true, false]), 1);
   assert.equal(firstEmptyStamp([true, true]), -1);
   assert.equal(firstEmptyStamp([false, true]), 0);
+});
+
+test('mergeFill copies from the other sheet but keeps what was scanned', () => {
+  const fill = [{ fromColumnId: 'r_tro', toColumnId: 'tro' }, { fromColumnId: 'r_mat', toColumnId: 'mat' }];
+  assert.deepEqual(mergeFill({ epc: 'E1' } as Record<string, unknown>, fill, { r_tro: '1234', r_mat: null }), { epc: 'E1', tro: '1234' });
+  assert.deepEqual(mergeFill({ epc: 'E1', tro: '9' } as Record<string, unknown>, fill, { r_tro: '1234', r_mat: 'ไก่' }), { epc: 'E1', tro: '9', mat: 'ไก่' });
 });

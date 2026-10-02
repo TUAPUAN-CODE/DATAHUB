@@ -1,6 +1,19 @@
 /** Pure parsing of scanned text (QR / barcode / RFID text) by a user-defined format. No database, no framework. */
 export interface ScanField { index: number; columnId: string }
 export interface ScanMatch { prefix?: string | null; regex?: string | null; fieldCount?: number | null }
+/** Check the scanned value against a list in another sheet (e.g. EPC → trolley register) and copy columns from the row found */
+export interface ScanVerify {
+  sheetId: string;
+  /** column of the other sheet that must equal the scanned value */
+  refKeyColumnId: string;
+  /** column of THIS sheet whose scanned value is looked up (default: the profile's key column) */
+  checkColumnId?: string | null;
+  /** other sheet's column → this sheet's column */
+  fill?: { fromColumnId: string; toColumnId: string }[] | null;
+  /** not found: refuse (nothing is written) / write anyway */
+  onMiss: 'reject' | 'allow';
+}
+
 export interface ScanProfile {
   id: string; name: string;
   /** separator between the pieces, e.g. "|" — "\t" means a tab; empty = the whole text is one piece */
@@ -18,6 +31,7 @@ export interface ScanProfile {
    * first scan = in, second scan of the same card = out. The newest row of the key is used.
    */
   stamps?: string[] | null;
+  verify?: ScanVerify | null;
   /** every stamp column is already filled: do nothing / refuse / start a new row (a new round of the same card) */
   onFull?: 'ignore' | 'reject' | 'new_row' | null;
 }
@@ -66,4 +80,15 @@ export function parseScan(text: string, p: ScanProfile): { pieces: string[]; val
     if (v !== undefined && v !== '') values[f.columnId] = v;
   }
   return { pieces, values };
+}
+
+/** Values copied from the row found in the other sheet; what the scan itself carried wins when it is not empty */
+export function mergeFill<T>(scanned: Record<string, T>, fill: { fromColumnId: string; toColumnId: string }[], ref: Record<string, T | null | undefined>): Record<string, T> {
+  const out = { ...scanned };
+  for (const f of fill) {
+    const v = ref[f.fromColumnId];
+    const have = out[f.toColumnId];
+    if (v !== null && v !== undefined && (have === undefined || have === null || (have as unknown) === '')) out[f.toColumnId] = v;
+  }
+  return out;
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Merge, Plus, ScanLine, Trash2 } from 'lucide-react';
 import type { LinesCfg, MixCfg, ScanProfile, SheetSettings } from '@/api/endpoints';
 import { LinesForm } from '../lines/LinesForm';
+import { VerifyEditor } from './VerifyEditor';
 import { toast } from '@/store/ui';
 import type { Column } from '@/types';
 import { Button } from '@/components/ui/Button';
@@ -40,7 +41,7 @@ export function ScanMixSettings({ open, onClose, sheetId, columns, settings, onS
         {tab === 'scan' ? (
           <div className="space-y-3">
             <p className="text-xs text-muted">กำหนดได้หลายรูปแบบ — ตอนสแกนระบบเลือกรูปแบบที่ตรงกับข้อความให้เอง (ดูจากเงื่อนไขที่ตั้ง เช่น ขึ้นต้นด้วย / จำนวนชุดข้อมูล)</p>
-            {profiles.map((p, i) => <ProfileCard key={p.id} p={p} columns={columns} onChange={(np) => setProfiles(profiles.map((x, k) => (k === i ? np : x)))} onRemove={() => setProfiles(profiles.filter((_, k) => k !== i))} />)}
+            {profiles.map((p, i) => <ProfileCard key={p.id} p={p} columns={columns} fileId={fileId} fileName={fileName} onChange={(np) => setProfiles(profiles.map((x, k) => (k === i ? np : x)))} onRemove={() => setProfiles(profiles.filter((_, k) => k !== i))} />)}
             <Button size="sm" variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => setProfiles([...profiles, newProfile()])}>เพิ่มรูปแบบ QR</Button>
           </div>
         ) : tab === 'mix' ? <MixForm columns={columns} mix={mix} onChange={setMix} /> : <LinesForm cfg={lines} onChange={setLines} fileId={fileId} fileName={fileName} />}
@@ -49,7 +50,7 @@ export function ScanMixSettings({ open, onClose, sheetId, columns, settings, onS
   );
 }
 
-function ProfileCard({ p, columns, onChange, onRemove }: { p: ScanProfile; columns: Column[]; onChange: (p: ScanProfile) => void; onRemove: () => void }) {
+function ProfileCard({ p, columns, onChange, onRemove, fileId, fileName }: { p: ScanProfile; columns: Column[]; onChange: (p: ScanProfile) => void; onRemove: () => void; fileId: string; fileName: string }) {
   const [sample, setSample] = useState('');
   const pieces = sample ? splitScan(sample, p.delimiter) : [];
   const rows = Math.max(pieces.length, ...p.fields.map((f) => f.index), 5);
@@ -102,6 +103,7 @@ function ProfileCard({ p, columns, onChange, onRemove }: { p: ScanProfile; colum
           </>
         )}
       </div>
+      <VerifyEditor p={p} columns={columns} onChange={onChange} fileId={fileId} fileName={fileName} />
       {p.action === 'update' && <StampsEditor p={p} columns={columns} onChange={onChange} />}
       <details className="text-sm">
         <summary className="cursor-pointer text-muted">เงื่อนไขเลือกรูปแบบอัตโนมัติ (เมื่อมีหลายรูปแบบ)</summary>

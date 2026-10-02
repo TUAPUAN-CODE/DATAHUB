@@ -10,7 +10,8 @@ import { readSettings, writeSettingsKey } from '../../services/sheetSettings';
 import { emitToSheet } from '../../socket';
 import { ah, badRequest, ok, parse, pid, reqMeta, zId } from '../../shared/http';
 import { LV, requireSheet } from '../../shared/permissions';
-import { detectProfile, firstEmptyStamp, parseScan, ScanProfile } from './parse';
+import { detectProfile, firstEmptyStamp, mergeFill, parseScan, ScanProfile } from './parse';
+import { fromStorage } from '../../shared/cellValue';
 
 const router = Router();
 
@@ -25,6 +26,11 @@ const profileSchema = z.object({
   onMiss: z.enum(['create', 'reject']).nullish(),
   stamps: z.array(zId).max(6).nullish(),
   onFull: z.enum(['ignore', 'reject', 'new_row']).nullish(),
+  verify: z.object({
+    sheetId: zId, refKeyColumnId: zId, checkColumnId: zId.nullish(),
+    fill: z.array(z.object({ fromColumnId: zId, toColumnId: zId })).max(20).nullish(),
+    onMiss: z.enum(['reject', 'allow']),
+  }).nullish(),
 });
 
 const loadProfiles = async (sheetId: string): Promise<ScanProfile[]> => ((await readSettings(sheetId)).scanProfiles ?? []) as ScanProfile[];
@@ -39,6 +45,16 @@ router.put('/sheets/:id/scan/profiles', ah(async (req, res) => {
     for (const f of p.fields) if (!cols.has(f.columnId)) throw badRequest(`รูปแบบ “${p.name}”: ไม่พบคอลัมน์ที่เลือก (อาจถูกลบแล้ว)`);
     if (new Set(p.fields.map((f) => f.index)).size !== p.fields.length) throw badRequest(`รูปแบบ “${p.name}”: ข้อมูลชุดเดียวกันถูกใส่หลายคอลัมน์`);
     if (p.action === 'update' && (!p.keyColumnId || !p.fields.some((f) => f.columnId === p.keyColumnId))) throw badRequest(`รูปแบบ “${p.name}”: โหมดอัปเดตต้องเลือกคอลัมน์ที่ใช้หาแถว และคอลัมน์นั้นต้องมีข้อมูลชุดที่ใส่ให้`);
+    if (p.verify) {
+      const v = p.verify;
+      if (v.sheetId.toLowerCase() === sheetId.toLowerCase()) throw badRequest(`รูปแบบ “${p.name}”: ตารางที่ใช้ตรวจต้องเป็นคนละชีตกับชีตนี้`);
+      await requireSheet(req.user!, v.sheetId, LV.read);
+      const refCols = new Set((await loadColumns(v.sheetId)).map((c) => c.column_id));
+      if (!refCols.has(v.refKeyColumnId)) throw badRequest(`รูปแบบ “${p.name}”: ไม่พบคอลัมน์ค้นหาในตารางที่ใช้ตรวจ`);
+      const check = v.checkColumnId ?? p.keyColumnId;
+      if (!check || !p.fields.some((f) => f.columnId === check)) throw badRequest(`รูปแบบ “${p.name}”: ต้องเลือกว่าจะนำข้อมูลชุดไหนไปตรวจ (คอลัมน์นั้นต้องมีข้อมูลชุดที่ใส่ให้)`);
+      for (const f of v.fill ?? []) if (!refCols.has(f.fromColumnId) || !cols.has(f.toColumnId)) throw badRequest(`รูปแบบ “${p.name}”: ไม่พบคอลัมน์ที่เลือกเติมค่า`);
+    }
     for (const sc of p.stamps ?? []) if (!cols.has(sc)) throw badRequest(`รูปแบบ “${p.name}”: ไม่พบคอลัมน์เวลาที่เลือก (อาจถูกลบแล้ว)`);
     if (p.stamps?.length && p.action !== 'update') throw badRequest(`รูปแบบ “${p.name}”: การลงเวลาตามลำดับใช้กับโหมด “อัปเดตแถวที่มีอยู่” เท่านั้น`);
     if (p.match?.regex) { try { new RegExp(p.match.regex); } catch { throw badRequest(`รูปแบบ “${p.name}”: เงื่อนไข regex ไม่ถูกต้อง`); } }
@@ -60,6 +76,34 @@ router.post('/sheets/:id/scan/preview', ah(async (req, res) => {
 /** Scan core, shared with other modules (line items of a trolley, devices): pick the format, split the text, create / update the row */
 export type ScanOutcome = { action: 'created' | 'updated' | 'ignored'; rowId: string; rowNo: number; profile: { id: string; name: string }; stamped?: string };
 
+/** The other sheet: is the scanned value in it? Copies the wanted columns (as text; the normal checks of the column still apply when written) */
+async function verifyAgainst(profile: ScanProfile, scanned: Record<string, string>, cols: any[]): Promise<Record<string, string>> {
+  const v = profile.verify!;
+  const checkId = v.checkColumnId ?? profile.keyColumnId!;
+  const value = scanned[checkId];
+  const refCols = await loadColumns(v.sheetId);
+  const refKey = refCols.find((c) => c.column_id === v.refKeyColumnId);
+  const found = value && refKey ? await findRowByValue(v.sheetId, refKey, value) : null;
+  if (!found) {
+    if (v.onMiss === 'reject') throw badRequest(`ไม่พบ “${value ?? ''}” ในตารางตรวจสอบ (${refKey?.column_name ?? 'คอลัมน์ค้นหา'}) — ไม่บันทึก`, { notFound: true, unknown: value ?? null });
+    return {};
+  }
+  const ids = [...new Set((v.fill ?? []).map((f) => f.fromColumnId))];
+  const ref: Record<string, string | null> = {};
+  if (ids.length) {
+    const cells = await q(`SELECT column_id, value_text, value_int, value_float, value_date, value_bool, value_json FROM Cells WHERE row_id = @r AND column_id IN ${idList('@cc')}`, { r: T.uuid(found.rowId), cc: jsonParam(ids) });
+    for (const c of cells) {
+      const def = refCols.find((x) => x.column_id === String(c.column_id).toLowerCase());
+      if (!def) continue;
+      const val = fromStorage(def.data_type, c);
+      ref[String(c.column_id).toLowerCase()] = val === null || val === '' ? null : Array.isArray(val) ? val.join(',') : String(val);
+    }
+  }
+  void cols;
+  const merged = mergeFill(scanned, v.fill ?? [], ref);
+  return Object.fromEntries(Object.entries(merged).filter(([k]) => !(k in scanned)));
+}
+
 /** which of the stamp columns of this row are already filled */
 async function filledStamps(rowId: string, stampIds: string[]): Promise<boolean[]> {
   const cells = await q(
@@ -76,10 +120,12 @@ export async function runScan(u: AuthUser, sheet: { file_id: string }, sheetId: 
   if (!profiles.length) throw badRequest('ชีตนี้ยังไม่ได้ตั้งค่ารูปแบบ QR (ผู้จัดการตั้งได้ที่ปุ่ม ตั้งค่าสแกน/ผสม)');
   const profile = profileId ? profiles.find((p) => p.id === profileId) ?? null : detectProfile(text, profiles);
   if (!profile) throw badRequest('ข้อความที่สแกนไม่ตรงกับรูปแบบ QR ที่ตั้งไว้', { text: text.slice(0, 200) });
-  const { values } = parseScan(text, profile);
-  if (!Object.keys(values).length) throw badRequest(`รูปแบบ “${profile.name}”: ไม่พบข้อมูลในตำแหน่งที่กำหนด`);
+  const { values: scanned } = parseScan(text, profile);
+  if (!Object.keys(scanned).length) throw badRequest(`รูปแบบ “${profile.name}”: ไม่พบข้อมูลในตำแหน่งที่กำหนด`);
 
   const cols = await loadColumns(sheetId);
+  const values: Record<string, string> = { ...scanned };
+  if (profile.verify) Object.assign(values, await verifyAgainst(profile, scanned, cols));
   const colName = (id: string) => cols.find((c) => c.column_id === id)?.column_name ?? '';
   const stamps = profile.stamps ?? [];
   const now = new Date().toISOString();
