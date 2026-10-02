@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { isBasicRole } from '@/types';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, FolderOpen, History, Home, KeyRound, LayoutDashboard, LogOut, Settings, Star, Trash2, Users, X } from 'lucide-react';
+import { ChevronDown, FolderOpen, GitFork, History, Home, KeyRound, LayoutDashboard, LogOut, Settings, Star, Trash2, Users, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
@@ -44,6 +44,7 @@ function SidebarBody({ onNavigate, scope }: { onNavigate?: () => void; scope: st
     ...(!isBasicRole(user.role) ? [{ to: '/audit', label: 'ประวัติการแก้ไข', icon: <History className="h-[18px] w-[18px]" /> }] : []),
     ...(user.role === 'admin' ? [{ to: '/users', label: 'จัดการผู้ใช้', icon: <Users className="h-[18px] w-[18px]" /> }] : []),
     { to: '/trash', label: 'ถังขยะ', icon: <Trash2 className="h-[18px] w-[18px]" /> },
+    { to: '/traceback', label: 'ย้อนรอย (Traceback)', icon: <GitFork className="h-[18px] w-[18px]" /> },
     { to: '/dashboards', label: 'แดชบอร์ด', icon: <LayoutDashboard className="h-[18px] w-[18px]" /> },
     { to: '/settings', label: 'ตั้งค่า', icon: <Settings className="h-[18px] w-[18px]" /> },
   ];
