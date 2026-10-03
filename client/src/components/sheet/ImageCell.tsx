@@ -1,6 +1,7 @@
 import { DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, ImagePlus, Loader2, X } from 'lucide-react';
+import { Camera, ChevronLeft, ChevronRight, ImagePlus, Loader2, X } from 'lucide-react';
+import { prepareImage } from '@/lib/imageCompress';
 import { uploadsApi } from '@/api/endpoints';
 import { apiError } from '@/api/client';
 import { cn } from '@/lib/cn';
@@ -109,7 +110,7 @@ export async function uploadImages(files: File[], onProgress?: (done: number, to
   let done = 0;
   for (const f of files) {
     if (!f.type.startsWith('image/')) { toast.error(`“${f.name}” ไม่ใช่ไฟล์รูปภาพ`); continue; }
-    try { out.push((await uploadsApi.image(f)).url); } catch (e) { toast.error(apiError(e).message, `อัปโหลด “${f.name}” ไม่สำเร็จ`); }
+    try { out.push((await uploadsApi.image(await prepareImage(f))).url); } catch (e) { toast.error(apiError(e).message, `อัปโหลด “${f.name}” ไม่สำเร็จ`); }
     onProgress?.(++done, files.length);
   }
   return out;
@@ -118,6 +119,7 @@ export async function uploadImages(files: File[], onProgress?: (done: number, to
 /** Thumbnail grid with remove buttons and an add / drop zone — used in the row form and the cell popover */
 export function ImagePicker({ urls, onChange, max = 200, columns = 4 }: { urls: string[]; onChange: (u: string[]) => void; max?: number; columns?: number }) {
   const input = useRef<HTMLInputElement>(null);
+  const cam = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<{ done: number; total: number } | null>(null);
   const [over, setOver] = useState(false);
   const lb = useLightbox();
@@ -142,6 +144,12 @@ export function ImagePicker({ urls, onChange, max = 200, columns = 4 }: { urls: 
           </div>
         ))}
         {urls.length < max && (
+          <button type="button" disabled={!!busy} onClick={() => cam.current?.click()}
+            className="grid aspect-square place-items-center rounded-lg border border-primary/40 bg-primary/5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-60">
+            <span className="flex flex-col items-center gap-1"><Camera className="h-5 w-5" />ถ่ายรูป</span>
+          </button>
+        )}
+        {urls.length < max && (
           <button type="button" disabled={!!busy} onClick={() => input.current?.click()}
             className="grid aspect-square place-items-center rounded-lg border border-line text-xs text-muted hover:border-primary/50 hover:text-primary disabled:opacity-60">
             {busy ? <span className="flex flex-col items-center gap-1"><Loader2 className="h-5 w-5 animate-spin" />{busy.done}/{busy.total}</span>
@@ -151,6 +159,9 @@ export function ImagePicker({ urls, onChange, max = 200, columns = 4 }: { urls: 
       </div>
       <p className="mt-1.5 text-[11px] text-muted">เลือกได้หลายรูปพร้อมกัน หรือลากรูปมาวางที่นี่ · PNG, JPG, GIF, WEBP</p>
       <input ref={input} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp" className="hidden"
+        onChange={(e) => { void add(e.target.files); e.target.value = ''; }} />
+      {/* capture = open the phone's camera app directly (works on http too); on a PC it is the normal file dialog */}
+      <input ref={cam} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={(e) => { void add(e.target.files); e.target.value = ''; }} />
       {lb.node}
     </div>

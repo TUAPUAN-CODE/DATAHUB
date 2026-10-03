@@ -1,6 +1,6 @@
 import { ClipboardEvent, KeyboardEvent, MouseEvent as RMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDownAZ, ArrowUpAZ, ChevronDown, ClipboardPaste, Copy, Eraser, Eye, EyeOff, Filter, History, Maximize2, MoveHorizontal,
+  ArrowDownAZ, ArrowUpAZ, Camera, ChevronDown, ClipboardPaste, Copy, Eraser, Eye, EyeOff, Filter, History, Maximize2, MoveHorizontal,
   Pin, PinOff, Settings2, SquarePen, Trash2, ArrowDownUp,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -14,6 +14,7 @@ import type { CellValue, Column, Row } from '@/types';
 import { Anchor, MenuItemDef, MenuList, Popover } from '../ui/Popover';
 import { CellDisplay, CellEditor, Move } from './CellView';
 import { alertColor, tint } from '@/modules/alerts/level';
+import { toUrls, uploadImages } from './ImageCell';
 import { useMinuteTick } from '@/modules/alerts/useMinuteTick';
 import type { CellChange, SheetView } from './useSheetView';
 
@@ -134,6 +135,22 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
     if (isComputed(col)) return toast.info('คอลัมน์นี้คำนวณจากสูตรอัตโนมัติ', 'แก้ไขสูตรได้ที่ “ตั้งค่าคอลัมน์”');
     if (col.dataType === 'boolean') return void commit([{ rowId: row.id, columnId: col.id, value: !row.values[col.id] }]);
     setEditing({ r, c, initial: initial !== undefined && EDIT_INLINE_TYPED.has(col.dataType) ? initial : undefined });
+  };
+
+  /** Tap the camera of an image cell: the phone's camera opens at once, the photo is added to the cell */
+  const captureInto = (row: Row, col: Column) => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*'; inp.setAttribute('capture', 'environment');
+    inp.onchange = async () => {
+      const files = [...(inp.files ?? [])];
+      if (!files.length) return;
+      const cur = toUrls(row.values[col.id]);
+      const max = col.validation?.maxSelections ?? 200;
+      if (cur.length >= max) { toast.info(`ใส่รูปได้ไม่เกิน ${max} รูป`); return; }
+      const added = await uploadImages(files.slice(0, max - cur.length));
+      if (added.length) void commit([{ rowId: row.id, columnId: col.id, value: [...cur, ...added] }]);
+    };
+    inp.click();
   };
 
   const finishEdit = (value: CellValue, mv: Move) => {
@@ -477,6 +494,10 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                         }}>
                         <div className="flex h-full items-center overflow-hidden" style={{ padding: `0 ${8 * z}px` }}>
                           <div className={col.dataType === 'image' ? 'h-full min-w-0 flex-1 overflow-hidden' : 'min-w-0 flex-1 truncate'}><CellDisplay col={col} value={v} /></div>
+                          {col.dataType === 'image' && canWrite && !isComputed(col) && (
+                            <button type="button" title="ถ่ายรูป" aria-label="ถ่ายรูป" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); captureInto(row, col); }}
+                              className="ml-1 grid shrink-0 place-items-center rounded-md p-1 text-primary hover:bg-primary/10"><Camera className="h-[1.1em] w-[1.1em]" /></button>
+                          )}
                         </div>
                         {isEdit && (
                           <CellEditor col={col} value={v} rowValues={row.values} initial={editing?.initial}
