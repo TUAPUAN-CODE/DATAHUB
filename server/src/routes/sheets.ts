@@ -7,7 +7,7 @@ import { mapColumn, mapSheet } from '../shared/mappers';
 import { LV, levelName, requireFile, requireSheet } from '../shared/permissions';
 import { loadColumns } from '../services/cellWriter';
 import { assertUniqueNames, insertColumn } from '../services/structure';
-import { sheetInput } from '../shared/schemas';
+import { filterSchema, sheetInput, sortSchema } from '../shared/schemas';
 import { copySheet } from './files';
 import { syncUnionIfStale, unionStatus } from '../services/union';
 import { runColumnDecorators } from '../services/hooks';
@@ -65,6 +65,7 @@ router.put(
         hiddenCols: z.array(z.string().max(60)).max(500).optional(),
         rowHeight: z.number().min(20).max(200).optional(),
         pageSize: z.number().int().min(10).max(1000).optional(),
+        query: z.object({ sorts: z.array(sortSchema).max(5), filters: z.array(filterSchema).max(50) }).optional(),
       }),
       req.body,
     );

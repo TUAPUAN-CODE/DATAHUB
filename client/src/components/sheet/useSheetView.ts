@@ -31,6 +31,7 @@ export function useSheetView(sheetId: string | null) {
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
   const seq = useRef(0);
+  const restoreQuery = useRef(true); // the saved sort / filter of this person is applied once, when a sheet is opened
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const loadDetail = useCallback(async () => {
@@ -39,6 +40,12 @@ export function useSheetView(sheetId: string | null) {
       const d = await sheetsApi.get(sheetId);
       setDetail(d);
       setPrefsState({ ...DEFAULT_PREFS, ...d.prefs });
+      if (restoreQuery.current) {
+        restoreQuery.current = false;
+        const ids = new Set(d.columns.map((c) => c.id.toLowerCase()));
+        const saved = d.prefs?.query; // columns deleted since then are dropped, so a stale sort can not break the sheet
+        setQueryState({ page: 1, search: '', sorts: (saved?.sorts ?? []).filter((x) => ids.has(x.columnId.toLowerCase())), filters: (saved?.filters ?? []).filter((x) => ids.has(x.columnId.toLowerCase())) });
+      }
       setDetailError(null);
     } catch (e) {
       setDetailError(apiError(e));
@@ -49,6 +56,7 @@ export function useSheetView(sheetId: string | null) {
     setDetail(null);
     setPage(null);
     setQueryState({ page: 1, sorts: [], filters: [], search: '' });
+    restoreQuery.current = true;
     undoStack.current = [];
     redoStack.current = [];
     void loadDetail();
@@ -93,6 +101,14 @@ export function useSheetView(sheetId: string | null) {
   }, [sheetId]);
 
   /* ---------- query ---------- */
+  // remember this person's sort / filter for the sheet (separate for every account); saved with the other prefs, a moment after the change
+  useEffect(() => {
+    if (!detail || detail.sheet.id !== sheetId || restoreQuery.current) return;
+    const cur = prefsRef.current.query;
+    if (JSON.stringify(cur?.sorts ?? []) === JSON.stringify(query.sorts) && JSON.stringify(cur?.filters ?? []) === JSON.stringify(query.filters)) return;
+    setPrefs({ query: { sorts: query.sorts, filters: query.filters } });
+  }, [query.sorts, query.filters]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const setQuery = useCallback((patch: Partial<QueryState>) => {
     setQueryState((q) => ({ ...q, ...patch, page: patch.page ?? (patch.sorts || patch.filters || patch.search !== undefined ? 1 : q.page) }));
   }, []);

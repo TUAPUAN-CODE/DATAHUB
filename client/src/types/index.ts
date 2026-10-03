@@ -69,6 +69,8 @@ export interface UnionStatus { sources: { sheetId: string; fileName: string | nu
 export interface SheetPrefs {
   zoom: number; frozenCols: number; frozenRows: number; colWidths: Record<string, number>; rowHeights: Record<string, number>;
   hiddenCols: string[]; rowHeight: number; pageSize: number;
+  /** this person's last sort / filter of the sheet, restored when they come back */
+  query?: { sorts: SortSpec[]; filters: ColumnFilter[] };
 }
 export interface Row {
   id: string; order: number; values: Record<string, CellValue>; meta: Record<string, { by: string; at: string }>;
