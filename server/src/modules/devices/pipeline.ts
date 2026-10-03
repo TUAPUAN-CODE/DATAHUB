@@ -2,9 +2,11 @@ import { q, T } from '../../config/db';
 import { loadAuthUser } from '../../middleware/auth';
 import { LV, requireSheet } from '../../shared/permissions';
 import { logger } from '../../shared/logger';
+import { safeJson } from '../../shared/http';
 import { readSettings } from '../../services/sheetSettings';
 import { runScan } from '../scan/routes';
 import { claimReading, releaseReading } from './cooldown';
+import { loadPrinter, printSlip, SlipCfg } from './slip';
 
 const DEBOUNCE_MS = Math.max(0, Number(process.env.DEVICE_DEBOUNCE_MS) || 3000);
 const recent = new Map<string, number>(); // device|value → last time (a tag in front of the reader is read many times a second)
@@ -33,7 +35,7 @@ export async function handleDeviceValue(deviceId: string, raw: string): Promise<
   if (recent.size > 5000) for (const [k, t] of recent) if (now - t > DEBOUNCE_MS) recent.delete(k);
 
   const bindings = await q(
-    `SELECT b.sheet_id, b.profile_id, b.run_as_user, sh.sheet_name
+    `SELECT b.sheet_id, b.profile_id, b.run_as_user, b.printer_id, b.slip_json, sh.sheet_name
      FROM DeviceBindings b JOIN Sheets sh ON sh.sheet_id = b.sheet_id WHERE b.device_id = @d AND b.enabled = 1 AND sh.is_deleted = 0`, { d: T.uuid(deviceId) });
   const parts: string[] = [];
   let failed = false;
@@ -55,7 +57,20 @@ export async function handleDeviceValue(deviceId: string, raw: string): Promise<
       if (!user) throw new Error('ผู้ที่เปิดการผูกนี้ถูกปิดการใช้งานแล้ว');
       const { sheet } = await requireSheet(user, b.sheet_id, LV.write);
       const r = await runScan(user, sheet, b.sheet_id, value, b.profile_id);
-      parts.push(`${b.sheet_name}: ${r.action === 'created' ? 'เพิ่ม' : r.action === 'ignored' ? 'ไม่เปลี่ยน (ครบทุกช่องแล้ว)' : 'อัปเดต'}แถว #${r.rowNo}${r.stamped ? ` (ลงเวลา “${r.stamped}”)` : ''}`);
+      let printed = '';
+      if (b.printer_id && r.action !== 'ignored') {
+        // slip: the printer chosen for this reader → sheet; failing to print never undoes the reading itself
+        try {
+          const cfg = safeJson<SlipCfg>(b.slip_json, {}) ?? {};
+          if (cfg.onlyStampColumnId && r.stampedColumnId?.toLowerCase() !== cfg.onlyStampColumnId.toLowerCase()) printed = ' · ไม่พิมพ์ (ไม่ใช่ช่วงที่ตั้งให้พิมพ์)';
+          else {
+            const printer = await loadPrinter(b.printer_id);
+            if (!printer) printed = ' · พิมพ์ไม่ได้ (เครื่องพิมพ์ถูกปิดหรือลบแล้ว)';
+            else { await printSlip(printer, { sheetName: b.sheet_name, sheetId: b.sheet_id, rowId: r.rowId, rowNo: r.rowNo, cfg, stamped: r.stamped, action: r.action }); printed = ` · พิมพ์สลิปที่ ${printer.printer_name}`; }
+          }
+        } catch (e) { printed = ` · พิมพ์สลิปไม่สำเร็จ: ${msgOf(e)}`; failed = true; }
+      }
+      parts.push(`${b.sheet_name}: ${r.action === 'created' ? 'เพิ่ม' : r.action === 'ignored' ? 'ไม่เปลี่ยน (ครบทุกช่องแล้ว)' : 'อัปเดต'}แถว #${r.rowNo}${r.stamped ? ` (ลงเวลา “${r.stamped}”)` : ''}${printed}`);
     } catch (e) { failed = true; parts.push(`${b.sheet_name}: ${msgOf(e)}`); if (claimed) await releaseReading(b.sheet_id, value); }
   }
   touch(deviceId, now);

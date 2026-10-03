@@ -87,7 +87,7 @@ export async function resolveScan(sheetId: string, text: string, profileId?: str
 }
 
 /** Scan core, shared with other modules (line items of a trolley, devices): pick the format, split the text, create / update the row */
-export type ScanOutcome = { action: 'created' | 'updated' | 'ignored'; rowId: string; rowNo: number; profile: { id: string; name: string }; stamped?: string };
+export type ScanOutcome = { action: 'created' | 'updated' | 'ignored'; rowId: string; rowNo: number; profile: { id: string; name: string }; stamped?: string; stampedColumnId?: string };
 
 /** The other sheet: is the scanned value in it? Copies the wanted columns (as text; the normal checks of the column still apply when written) */
 async function verifyAgainst(profile: ScanProfile, scanned: Record<string, string>, cols: any[]): Promise<Record<string, string>> {
@@ -157,18 +157,19 @@ export async function runScan(u: AuthUser, sheet: { file_id: string }, sheetId: 
   if (found) {
     const updates = Object.entries(values).filter(([c]) => c !== profile.keyColumnId).map(([columnId, value]) => ({ rowId: found.rowId, columnId, value }));
     let stamped: string | undefined;
+    let stampedId: string | undefined;
     if (stamps.length) {
       const i = firstEmptyStamp(await filledStamps(found.rowId, stamps));
-      if (i >= 0) { updates.push({ rowId: found.rowId, columnId: stamps[i], value: now }); stamped = colName(stamps[i]); }
+      if (i >= 0) { updates.push({ rowId: found.rowId, columnId: stamps[i], value: now }); stamped = colName(stamps[i]); stampedId = stamps[i]; }
       else if (profile.onFull === 'reject') throw badRequest(`แถวนี้ลงเวลาครบทุกช่องแล้ว (${stamps.map(colName).join(' → ')})`);
-      else if (profile.onFull === 'new_row') { const made = await create({ [stamps[0]]: now }); return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: prof, stamped: colName(stamps[0]) }; }
+      else if (profile.onFull === 'new_row') { const made = await create({ [stamps[0]]: now }); return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: prof, stamped: colName(stamps[0]), stampedColumnId: stamps[0] }; }
       else return { action: 'ignored', rowId: found.rowId, rowNo: found.rowNo, profile: prof };
     }
     if (updates.length) await applyCellUpdates(u, sheetId, updates, { req, source: 'scan' });
-    return { action: 'updated', rowId: found.rowId, rowNo: found.rowNo, profile: prof, stamped };
+    return { action: 'updated', rowId: found.rowId, rowNo: found.rowNo, profile: prof, stamped, stampedColumnId: stampedId };
   }
   const made = await create(stamps.length ? { [stamps[0]]: now } : {});
-  return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: prof, stamped: stamps.length ? colName(stamps[0]) : undefined };
+  return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: prof, stamped: stamps.length ? colName(stamps[0]) : undefined, stampedColumnId: stamps.length ? stamps[0] : undefined };
 }
 
 /** Fills the "add row" form: the same reading as a scan (format + check against the other sheet) but nothing is saved */

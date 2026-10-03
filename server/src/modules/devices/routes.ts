@@ -3,10 +3,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { q, q1, T } from '../../config/db';
 import { requireRole } from '../../middleware/auth';
-import { ah, badRequest, notFound, ok, parse, pid, zId } from '../../shared/http';
+import { ah, badRequest, notFound, ok, parse, pid, safeJson, zId } from '../../shared/http';
 import { LV, requireSheet } from '../../shared/permissions';
 import { readSettings, writeSettingsKey } from '../../services/sheetSettings';
 import { handleDeviceValue } from './pipeline';
+import { printSlip, SlipCfg } from './slip';
+import { loadColumns } from '../../services/cellWriter';
 import { syncGatewayNow } from './gateway';
 import { isHex } from './rfidFrame';
 
@@ -81,29 +83,84 @@ router.post('/devices/:id/test-event', admin, ah(async (req, res) => {
   ok(res, await handleDeviceValue(d.device_id, `${value}`));
 }));
 
+/* ---------------- slip printers (print-agent of PFCM) ---------------- */
+const printerBody = z.object({
+  name: z.string().trim().min(1).max(100),
+  agentUrl: z.string().trim().url().max(300),
+  printerHost: z.string().trim().max(200).nullish(), printerShare: z.string().trim().max(100).nullish(),
+  dotWidth: z.number().int().min(100).max(1600).nullish(), enabled: z.boolean().optional(),
+});
+const printerMap = (p: any) => ({ id: p.printer_id, name: p.printer_name, agentUrl: p.agent_url, printerHost: p.printer_host, printerShare: p.printer_share, dotWidth: p.dot_width, enabled: !!p.enabled });
+
+router.get('/printers', admin, ah(async (_req, res) => {
+  ok(res, { printers: (await q(`SELECT printer_id, printer_name, agent_url, printer_host, printer_share, dot_width, enabled FROM Printers ORDER BY printer_name`)).map(printerMap) });
+}));
+router.post('/printers', admin, ah(async (req, res) => {
+  const b = parse(printerBody, req.body);
+  if (!!b.printerHost !== !!b.printerShare) throw badRequest('ถ้าพิมพ์ผ่านเครื่องที่แชร์เครื่องพิมพ์ ต้องใส่ทั้ง IP/ชื่อเครื่อง และชื่อ share');
+  const r = await q1(`INSERT INTO Printers (printer_name, agent_url, printer_host, printer_share, dot_width, created_by) OUTPUT inserted.printer_id VALUES (@n, @a, @h, @s, @w, @u)`,
+    { n: T.text(b.name), a: T.text(b.agentUrl), h: T.text(b.printerHost || null), s: T.text(b.printerShare || null), w: T.int(b.dotWidth ?? null), u: T.uuid(req.user!.id) });
+  ok(res, { id: r!.printer_id }, 201);
+}));
+router.put('/printers/:id', admin, ah(async (req, res) => {
+  const b = parse(printerBody.partial(), req.body);
+  await q(`UPDATE Printers SET printer_name = ISNULL(@n, printer_name), agent_url = ISNULL(@a, agent_url), printer_host = CASE WHEN @hset = 1 THEN @h ELSE printer_host END, printer_share = CASE WHEN @hset = 1 THEN @s ELSE printer_share END,
+          dot_width = CASE WHEN @wset = 1 THEN @w ELSE dot_width END, enabled = ISNULL(@e, enabled) WHERE printer_id = @p`,
+    { n: T.text(b.name ?? null), a: T.text(b.agentUrl ?? null), hset: T.bit('printerHost' in b || 'printerShare' in b), h: T.text(b.printerHost || null), s: T.text(b.printerShare || null), wset: T.bit('dotWidth' in b), w: T.int(b.dotWidth ?? null), e: T.bit(b.enabled ?? null), p: T.uuid(pid(req)) });
+  ok(res, { saved: true });
+}));
+router.delete('/printers/:id', admin, ah(async (req, res) => {
+  await q(`UPDATE DeviceBindings SET printer_id = NULL WHERE printer_id = @p`, { p: T.uuid(pid(req)) });
+  await q(`DELETE FROM Printers WHERE printer_id = @p`, { p: T.uuid(pid(req)) });
+  ok(res, { removed: true });
+}));
+/** A test slip, to see that the agent, the share and the paper work */
+router.post('/printers/:id/test', admin, ah(async (req, res) => {
+  const p = await q1(`SELECT printer_id, printer_name, agent_url, printer_host, printer_share, dot_width FROM Printers WHERE printer_id = @p`, { p: T.uuid(pid(req)) });
+  if (!p) throw notFound('ไม่พบเครื่องพิมพ์');
+  try {
+    const res2 = await fetch(`${String(p.agent_url).replace(/\/+$/, '')}/print-generic`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(45_000),
+      body: JSON.stringify({ identifier: `test:${p.printer_id}:${Date.now()}`, title: 'ทดสอบเครื่องพิมพ์', subtitle: p.printer_name, rows: [{ label: 'เครื่องพิมพ์', value: p.printer_name }, { label: 'เวลา', value: new Date().toLocaleString('th-TH') }], qr: 'DataSheet Pro', printerHost: p.printer_host || undefined, printerShare: p.printer_share || undefined, printerDotWidth: p.dot_width || undefined }),
+    });
+    const j = (await res2.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res2.ok || !j.ok) throw new Error(j.error ?? `Print Agent ตอบ ${res2.status}`);
+  } catch (e) { throw badRequest(`พิมพ์ทดสอบไม่สำเร็จ: ${(e as Error).message}`); }
+  ok(res, { sent: true });
+}));
+
 /** For managers of a sheet: which devices write into this sheet */
 router.get('/sheets/:id/devices', ah(async (req, res) => {
   const sheetId = pid(req);
   await requireSheet(req.user!, sheetId, LV.manage);
   const devices = await q(`SELECT device_id, device_name, kind, status FROM Devices ORDER BY device_name`);
-  const binds = await q(`SELECT device_id, enabled, profile_id FROM DeviceBindings WHERE sheet_id = @s`, { s: T.uuid(sheetId) });
+  const binds = await q(`SELECT device_id, enabled, profile_id, printer_id, slip_json FROM DeviceBindings WHERE sheet_id = @s`, { s: T.uuid(sheetId) });
+  const printers = await q(`SELECT printer_id, printer_name FROM Printers WHERE enabled = 1 ORDER BY printer_name`);
   const by = new Map(binds.map((b) => [String(b.device_id).toLowerCase(), b]));
   const cooldownMin = Number((await readSettings(sheetId)).devices?.cooldownMin) || 0;
-  ok(res, { cooldownMin, devices: devices.map((d) => { const b = by.get(String(d.device_id).toLowerCase()); return { id: d.device_id, name: d.device_name, kind: d.kind, status: d.status, bound: !!b, enabled: !!b?.enabled, profileId: b?.profile_id ?? null }; }) });
+  ok(res, { cooldownMin, printers: printers.map((p) => ({ id: p.printer_id, name: p.printer_name })), devices: devices.map((d) => { const b = by.get(String(d.device_id).toLowerCase()); return { id: d.device_id, name: d.device_name, kind: d.kind, status: d.status, bound: !!b, enabled: !!b?.enabled, profileId: b?.profile_id ?? null, printerId: b?.printer_id ?? null, slip: safeJson<SlipCfg | null>(b?.slip_json, null) }; }) });
 }));
 
 router.put('/sheets/:id/devices/:deviceId', ah(async (req, res) => {
   const sheetId = pid(req);
   const u = req.user!;
   await requireSheet(u, sheetId, LV.manage);
-  const b = parse(z.object({ enabled: z.boolean(), profileId: z.string().max(40).nullish() }), req.body);
+  const b = parse(z.object({
+    enabled: z.boolean(), profileId: z.string().max(40).nullish(), printerId: zId.nullish(),
+    slip: z.object({ title: z.string().max(80).nullish(), columnIds: z.array(zId).max(30).nullish(), qr: z.enum(['none', 'rowNo', 'column']).optional(), qrColumnId: zId.nullish(), onlyStampColumnId: zId.nullish() }).nullish(),
+  }), req.body);
+  if (b.printerId && !(await q1(`SELECT printer_id FROM Printers WHERE printer_id = @p`, { p: T.uuid(b.printerId) }))) throw badRequest('ไม่พบเครื่องพิมพ์ที่เลือก');
+  if (b.slip) {
+    const cols = new Set((await loadColumns(sheetId)).map((c) => c.column_id));
+    for (const id of [...(b.slip.columnIds ?? []), b.slip.qrColumnId, b.slip.onlyStampColumnId]) if (id && !cols.has(id)) throw badRequest('ไม่พบคอลัมน์ที่เลือกในสลิป (อาจถูกลบแล้ว)');
+  }
   const dev = await q1(`SELECT device_id FROM Devices WHERE device_id = @d`, { d: T.uuid(String(req.params.deviceId)) });
   if (!dev) throw notFound('ไม่พบอุปกรณ์');
   await q(
     `MERGE DeviceBindings AS t USING (SELECT @d AS device_id, @s AS sheet_id) AS s ON t.device_id = s.device_id AND t.sheet_id = s.sheet_id
-     WHEN MATCHED THEN UPDATE SET enabled = @e, profile_id = @p, run_as_user = @u
-     WHEN NOT MATCHED THEN INSERT (device_id, sheet_id, enabled, profile_id, run_as_user) VALUES (@d, @s, @e, @p, @u);`,
-    { d: T.uuid(dev.device_id), s: T.uuid(sheetId), e: T.bit(b.enabled), p: T.text(b.profileId ?? null), u: T.uuid(u.id) });
+     WHEN MATCHED THEN UPDATE SET enabled = @e, profile_id = @p, run_as_user = @u, printer_id = CASE WHEN @prset = 1 THEN @pr ELSE printer_id END, slip_json = CASE WHEN @slset = 1 THEN @sl ELSE slip_json END
+     WHEN NOT MATCHED THEN INSERT (device_id, sheet_id, enabled, profile_id, run_as_user, printer_id, slip_json) VALUES (@d, @s, @e, @p, @u, @pr, @sl);`,
+    { d: T.uuid(dev.device_id), s: T.uuid(sheetId), e: T.bit(b.enabled), p: T.text(b.profileId ?? null), u: T.uuid(u.id), prset: T.bit('printerId' in b), slset: T.bit('slip' in b), pr: T.uuid(b.printerId ?? null), sl: T.text(b.slip ? JSON.stringify(b.slip) : null) });
   ok(res, { saved: true });
 }));
 
@@ -116,5 +173,5 @@ router.put('/sheets/:id/devices-settings', ah(async (req, res) => {
   ok(res, { saved: true });
 }));
 
-void zId;
+void zId; void printSlip;
 export default router;

@@ -318,7 +318,7 @@ export default function FilePage() {
           <ScanDialog open={modal === 'scan'} onClose={() => setModal(null)} sheetId={sheetId} profiles={view.detail.settings?.scanProfiles ?? []} onDone={() => void view.loadRows(true)} />
           {view.detail.settings?.mix && <MixDialog open={modal === 'mix'} onClose={() => setModal(null)} sheetId={sheetId} cfg={view.detail.settings.mix} columns={view.columns} selectedRows={view.rows.filter((r) => selRows.includes(r.id))} onDone={() => void view.loadRows(true)} />}
           {view.detail.settings?.lines && <LinesDialog open={modal === 'lines'} onClose={() => setModal(null)} sheetId={sheetId} headerRow={view.rows.find((r) => r.id === selRows[0]) ?? null} headerLabel="" cfg={view.detail.settings.lines} canWrite={canWrite} onDone={() => void view.loadRows(true)} />}
-          <DeviceBindingsDialog open={modal === 'devices'} onClose={() => setModal(null)} sheetId={sheetId} profiles={view.detail.settings?.scanProfiles ?? []} />
+          <DeviceBindingsDialog open={modal === 'devices'} onClose={() => setModal(null)} sheetId={sheetId} profiles={view.detail.settings?.scanProfiles ?? []} columns={view.allColumns} />
           <FilterBarSettings open={modal === 'filterbar'} onClose={() => setModal(null)} sheetId={sheetId} columns={view.columns} selected={barSel} onSaved={() => void view.loadDetail()} />
           <ImportModal open={modal === 'import'} onClose={() => setModal(null)} sheetId={sheetId} sheetName={view.detail.sheet.name} fileName={f.name} columns={view.detail.columns}
             onDone={() => void view.loadRows(true)} />

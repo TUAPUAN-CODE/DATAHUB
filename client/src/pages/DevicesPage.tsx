@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Cpu, Plus, Trash2 } from 'lucide-react';
+import { Copy, Cpu, Plus, Printer as PrinterIcon, Trash2 } from 'lucide-react';
 import { toast } from '@/store/ui';
 import { Button } from '@/components/ui/Button';
 import { Field, Select, TextInput, Toggle } from '@/components/ui/Inputs';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState, PageHeader } from '@/components/ui/misc';
-import { DEFAULT_INIT_HEX, DEFAULT_START_HEX, Device, DeviceEvent, devicesApi, STATUS_LABEL } from '@/modules/devices/api';
+import { DEFAULT_INIT_HEX, DEFAULT_START_HEX, Device, DeviceEvent, devicesApi, Printer, STATUS_LABEL } from '@/modules/devices/api';
 
 const msg = (e: unknown) => (e as { response?: { data?: { error?: { message?: string } } }; message?: string }).response?.data?.error?.message ?? (e as Error).message;
 
@@ -21,8 +21,22 @@ export default function DevicesPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [sim, setSim] = useState('');
   const [busy, setBusy] = useState(false);
+  const [printers, setPrinters] = useState<Printer[]>([]);
+  const [pForm, setPForm] = useState<{ id: string | null; name: string; agentUrl: string; printerHost: string; printerShare: string; dotWidth: string } | null>(null);
 
   const load = useCallback(async () => { try { const r = await devicesApi.list(); setDevices(r.devices); setGateway(r.gateway); setSel((s) => (s ? r.devices.find((d) => d.id === s.id) ?? null : s)); } catch (e) { toast.error(e); } }, []);
+  const loadPrinters = useCallback(async () => { try { setPrinters((await devicesApi.printers()).printers); } catch (e) { toast.error(e); } }, []);
+  useEffect(() => { void loadPrinters(); }, [loadPrinters]);
+  const savePrinter = async () => {
+    if (!pForm) return;
+    setBusy(true);
+    try {
+      const body = { name: pForm.name, agentUrl: pForm.agentUrl, printerHost: pForm.printerHost || null, printerShare: pForm.printerShare || null, dotWidth: pForm.dotWidth ? Number(pForm.dotWidth) : null };
+      if (pForm.id) await devicesApi.updatePrinter(pForm.id, body); else await devicesApi.addPrinter(body);
+      setPForm(null); await loadPrinters();
+    } catch (e) { toast.error(e); } finally { setBusy(false); }
+  };
+  const testPrinter = async (p: Printer) => { try { await devicesApi.testPrinter(p.id); toast.success('ส่งสลิปทดสอบแล้ว', p.name); } catch (e) { toast.error(msg(e)); } };
   useEffect(() => { void load(); const t = setInterval(() => { if (!document.hidden) void load(); }, 5000); return () => clearInterval(t); }, [load]);
   useEffect(() => {
     if (!sel) { setEvents([]); return; }
@@ -98,6 +112,36 @@ export default function DevicesPage() {
         </div>
       </div>
 
+      <div className="space-y-2">
+        <div className="flex items-center gap-2"><PrinterIcon className="h-5 w-5 text-primary" /><h2 className="flex-1 text-base font-semibold">เครื่องพิมพ์สลิป (Print Agent เดียวกับ PFCM)</h2>
+          <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setPForm({ id: null, name: '', agentUrl: 'http://172.48.0.115:9100', printerHost: '', printerShare: '', dotWidth: '576' })}>เพิ่มเครื่องพิมพ์</Button></div>
+        <p className="text-xs text-muted">ตั้งค่าเหมือน RFIDReaderConfig ของ PFCM: URL ของ Print Agent, IP/ชื่อเครื่องที่แชร์เครื่องพิมพ์ + ชื่อ share, ความกว้างจุด (80mm = 576) — แล้วเลือกเครื่องพิมพ์ให้แต่ละ “เครื่องอ่าน → ชีต” ที่ปุ่ม “อุปกรณ์” ของชีต</p>
+        <div className="grid gap-2 md:grid-cols-2">
+          {printers.map((p) => (
+            <div key={p.id} className="ds-card space-y-1 p-3">
+              <div className="flex items-center gap-2"><span className="flex-1 truncate font-medium">{p.name}</span>
+                <Button size="sm" variant="ghost" onClick={() => void testPrinter(p)}>พิมพ์ทดสอบ</Button>
+                <Button size="sm" variant="ghost" onClick={() => setPForm({ id: p.id, name: p.name, agentUrl: p.agentUrl, printerHost: p.printerHost ?? '', printerShare: p.printerShare ?? '', dotWidth: String(p.dotWidth ?? '') })}>แก้ไข</Button>
+                <Button size="sm" variant="ghost" className="!text-danger" onClick={() => { if (window.confirm(`ลบเครื่องพิมพ์ “${p.name}”?`)) void devicesApi.removePrinter(p.id).then(loadPrinters).catch((e) => toast.error(e)); }}><Trash2 className="h-4 w-4" /></Button></div>
+              <p className="text-xs text-muted">Agent {p.agentUrl}{p.printerHost ? ` · \\\\${p.printerHost}\\${p.printerShare}` : ' · เครื่องพิมพ์ default ของเครื่อง agent'}{p.dotWidth ? ` · ${p.dotWidth} จุด` : ''}</p>
+            </div>
+          ))}
+          {!printers.length && <p className="text-sm text-muted">ยังไม่มีเครื่องพิมพ์</p>}
+        </div>
+      </div>
+      <Modal open={!!pForm} onClose={() => setPForm(null)} size="md" title={pForm?.id ? 'แก้ไขเครื่องพิมพ์' : 'เพิ่มเครื่องพิมพ์'} footer={<><Button variant="secondary" onClick={() => setPForm(null)}>ยกเลิก</Button><Button onClick={() => void savePrinter()} loading={busy} disabled={!pForm?.name.trim() || !pForm?.agentUrl.trim()}>บันทึก</Button></>}>
+        {pForm && (
+          <div className="space-y-3">
+            <Field label="ชื่อเครื่องพิมพ์"><TextInput value={pForm.name} onChange={(e) => setPForm({ ...pForm, name: e.target.value })} placeholder="เช่น เครื่องพิมพ์ห้องเย็น 1" /></Field>
+            <Field label="URL ของ Print Agent" hint="เครื่องที่รัน print-agent (พอร์ต 9100)"><TextInput value={pForm.agentUrl} onChange={(e) => setPForm({ ...pForm, agentUrl: e.target.value })} className="font-mono" /></Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="IP / ชื่อเครื่องที่แชร์เครื่องพิมพ์" hint="ว่าง = ใช้เครื่องพิมพ์ default ของเครื่อง agent"><TextInput value={pForm.printerHost} onChange={(e) => setPForm({ ...pForm, printerHost: e.target.value })} className="font-mono" placeholder="10.246.145.x" /></Field>
+              <Field label="ชื่อ share"><TextInput value={pForm.printerShare} onChange={(e) => setPForm({ ...pForm, printerShare: e.target.value })} className="font-mono" placeholder="POS-80C" /></Field>
+            </div>
+            <Field label="ความกว้างจุด (printer_dot_width)" hint="กระดาษ 80 mm ที่ 203 dpi = 576"><TextInput type="number" value={pForm.dotWidth} onChange={(e) => setPForm({ ...pForm, dotWidth: e.target.value })} /></Field>
+          </div>
+        )}
+      </Modal>
       <Modal open={add} onClose={() => { setAdd(false); setEditId(null); }} size="md" title={editId ? 'แก้ไขอุปกรณ์' : 'เพิ่มอุปกรณ์'} footer={<><Button variant="secondary" onClick={() => { setAdd(false); setEditId(null); }}>ยกเลิก</Button><Button onClick={create} loading={busy} disabled={!form.name.trim() || (form.kind === 'rfid_tcp' && (!form.host.trim() || !form.port))}>{editId ? 'บันทึก' : 'เพิ่ม'}</Button></>}>
         <div className="space-y-3">
           <Field label="ชื่ออุปกรณ์"><TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="เช่น Reader ห้องเย็น 1" /></Field>
