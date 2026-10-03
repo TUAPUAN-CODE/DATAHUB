@@ -5,12 +5,16 @@ import { toast } from '@/store/ui';
 import { Field, Select, Toggle } from '@/components/ui/Inputs';
 import type { AlertCfg, ColumnDraft } from '@/types';
 import { DEFAULT_ALERT_LEVELS, DEFAULT_NORMAL_COLOR } from './level';
+import { ExternalSource, ExtRole } from './ExternalSource';
 
 /**
  * Colour alert of a column: ratio = (end or NOW) − start, compared with the limit (minutes).
  * Levels are user-defined (e.g. 50 % yellow, 100 % red); below the first level the "normal" colour is used.
  */
-export function AlertEditor({ c, setV, siblings, sheetId }: { c: ColumnDraft; setV: (p: Record<string, unknown>) => void; siblings: ColumnDraft[]; sheetId?: string }) {
+const EXT = '__external__';
+
+export function AlertEditor({ c, setV, siblings, sheetId, onAddDraft }: { c: ColumnDraft; setV: (p: Record<string, unknown>) => void; siblings: ColumnDraft[]; sheetId?: string; onAddDraft?: (d: ColumnDraft) => void }) {
+  const [ext, setExt] = useState<ExtRole | null>(null);
   const a = c.validation?.alert ?? null;
   const dates = siblings.filter((s) => s.id && s.key !== c.key && (s.dataType === 'datetime' || s.dataType === 'date'));
   const nums = siblings.filter((s) => s.id && s.key !== c.key && (s.dataType === 'int' || s.dataType === 'float'));
@@ -23,15 +27,19 @@ export function AlertEditor({ c, setV, siblings, sheetId }: { c: ColumnDraft; se
       {a && (
         <>
           <div className="grid gap-3 md:grid-cols-3">
-            <Field label="เวลาเริ่ม"><Select value={a.startColumnId} onChange={(e) => set({ startColumnId: e.target.value })}>
-              <option value="">— เลือกคอลัมน์ —</option>{dates.map((s) => <option key={s.key} value={s.id}>{s.name}</option>)}</Select></Field>
+            <Field label="เวลาเริ่ม"><Select value={a.startColumnId} onChange={(e) => (e.target.value === EXT ? setExt('start') : set({ startColumnId: e.target.value }))}>
+              <option value="">— เลือกคอลัมน์ —</option>{dates.map((s) => <option key={s.key} value={s.id}>{s.name}</option>)}{sheetId && <option value={EXT}>➕ ดึงจากตารางอื่น…</option>}</Select></Field>
             <Field label="เวลาสิ้นสุด" hint="ยังว่าง = นับถึงเวลาปัจจุบัน (อัปเดตทุก 1 นาที)">
-              <Select value={a.endColumnId ?? ''} onChange={(e) => set({ endColumnId: e.target.value || null })}>
-                <option value="">— ใช้เวลาปัจจุบัน —</option>{dates.map((s) => <option key={s.key} value={s.id}>{s.name}</option>)}</Select></Field>
-            <Field label="เวลามาตรฐาน (นาที)" hint="คอลัมน์ตัวเลข เช่น สูตร HM(LOOKUP(...))">
-              <Select value={a.limitColumnId} onChange={(e) => set({ limitColumnId: e.target.value })}>
-                <option value="">— เลือกคอลัมน์ —</option>{nums.map((s) => <option key={s.key} value={s.id}>{s.name}</option>)}</Select></Field>
+              <Select value={a.endColumnId ?? ''} onChange={(e) => (e.target.value === EXT ? setExt('end') : set({ endColumnId: e.target.value || null }))}>
+                <option value="">— ใช้เวลาปัจจุบัน —</option>{dates.map((s) => <option key={s.key} value={s.id}>{s.name}</option>)}{sheetId && <option value={EXT}>➕ ดึงจากตารางอื่น…</option>}</Select></Field>
+            <Field label="เวลามาตรฐาน (นาที)" hint="คอลัมน์ตัวเลข หรือดึงจากตารางเกณฑ์เวลาอื่น">
+              <Select value={a.limitColumnId} onChange={(e) => (e.target.value === EXT ? setExt('limit') : set({ limitColumnId: e.target.value }))}>
+                <option value="">— เลือกคอลัมน์ —</option>{nums.map((s) => <option key={s.key} value={s.id}>{s.name}</option>)}{sheetId && <option value={EXT}>➕ ดึงจากตารางอื่น…</option>}</Select></Field>
           </div>
+          {ext && sheetId && (
+            <ExternalSource role={ext} sheetId={sheetId} local={siblings.filter((s) => s.key !== c.key)} onCancel={() => setExt(null)}
+              onCreated={(d) => { onAddDraft?.(d); set(ext === 'start' ? { startColumnId: d.id! } : ext === 'end' ? { endColumnId: d.id! } : { limitColumnId: d.id! }); setExt(null); }} />
+          )}
           <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-sm">
               <input type="color" value={a.normalColor ?? DEFAULT_NORMAL_COLOR} onChange={(e) => set({ normalColor: e.target.value })} className="h-7 w-9 cursor-pointer rounded border border-line" />

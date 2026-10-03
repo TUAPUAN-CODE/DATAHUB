@@ -41,7 +41,8 @@ export function ColumnManagerModal({ open, onClose, sheetId, columns, deleted, o
           continue;
         }
         ids.push(d.id);
-        const o = orig.get(d.id)!;
+        const o = orig.get(d.id);
+        if (!o) continue; // helper column made while editing (e.g. alert source from another table): already saved
         const before = JSON.stringify(draftToPayload(toDraft(o, columns)));
         if (before === JSON.stringify(payload)) continue;
         try {

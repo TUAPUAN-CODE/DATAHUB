@@ -89,7 +89,7 @@ function DocNumberEditor({ c, setV, siblings, fileId, fileName }: { c: ColumnDra
   );
 }
 
-function ColumnDetails({ c, set, siblings, fileId, fileName, sheetId }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string; sheetId?: string }) {
+function ColumnDetails({ c, set, siblings, fileId, fileName, sheetId, onAddDraft }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string; sheetId?: string; onAddDraft?: (d: ColumnDraft) => void }) {
   const v = c.validation ?? {};
   const setV = (p: Record<string, unknown>) => set({ validation: { ...v, ...p } });
   const isLookup = !!v.lookup;
@@ -99,7 +99,7 @@ function ColumnDetails({ c, set, siblings, fileId, fileName, sheetId }: { c: Col
       <Field label="ข้อความตัวอย่างในช่องกรอก"><TextInput value={c.placeholder ?? ''} onChange={(e) => set({ placeholder: e.target.value })} /></Field>
       {c.dataType === 'doc_number' && <DocNumberEditor c={c} setV={setV} siblings={siblings} fileId={fileId} fileName={fileName} />}
       {canHaveFormula(c.dataType) && !isLookup && <FormulaEditor c={c} setV={setV} siblings={siblings} sheetId={sheetId} />}
-      {c.id && c.dataType !== 'image' && <AlertEditor c={c} setV={setV} siblings={siblings} sheetId={sheetId} />}
+      {c.id && c.dataType !== 'image' && <AlertEditor c={c} setV={setV} siblings={siblings} sheetId={sheetId} onAddDraft={onAddDraft} />}
       {isSelect(c.dataType) && (
         <div className="space-y-3 md:col-span-2">
           <Segmented size="sm" value={isLookup ? 'lookup' : 'custom'} onChange={(m) => setV({ lookup: m === 'lookup' ? { sheetId: '', columnId: '', parent: null } : null })}
@@ -241,7 +241,7 @@ export function ColumnEditor({ columns, onChange, lockedTypes, fileId, fileName,
             <AnimatePresence initial={false}>
               {open === c.key && (
                 <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
-                  <ColumnDetails c={c} set={(p) => set(c.key, p)} siblings={columns} fileId={fileId} fileName={fileName} sheetId={sheetId} />
+                  <ColumnDetails c={c} set={(p) => set(c.key, p)} siblings={columns} fileId={fileId} fileName={fileName} sheetId={sheetId} onAddDraft={(d) => onChange([...columns, d])} />
                 </motion.div>
               )}
             </AnimatePresence>
