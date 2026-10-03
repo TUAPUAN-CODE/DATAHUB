@@ -1,3 +1,4 @@
+import { invalidateRowCount } from './services/rowCount';
 import http from 'http';
 import { Server as IOServer } from 'socket.io';
 import { env } from './config/env';
@@ -87,6 +88,7 @@ export function emitToUser(userId: string, event: string, payload: unknown) {
 }
 
 export function emitToSheet(sheetId: string, event: string, payload: unknown, exceptSocketId?: string) {
+  if (event === 'rows:changed') invalidateRowCount(sheetId); // rows were added / removed: the remembered totals are stale
   if (!io) return;
   const target = io.to(`sheet:${sheetId}`);
   (exceptSocketId ? target.except(exceptSocketId) : target).emit(event, payload);

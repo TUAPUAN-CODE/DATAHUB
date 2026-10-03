@@ -12,6 +12,7 @@
     "db:init": "ts-node --transpile-only src/scripts/initDb.ts",
     "db:reset": "ts-node --transpile-only src/scripts/initDb.ts --force",
     "db:seed": "ts-node --transpile-only src/scripts/seed.ts",
+    "bench": "ts-node --transpile-only src/scripts/benchScale.ts",
     "test": "node scripts/runTests.js"
   },
   "dependencies": {
