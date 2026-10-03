@@ -1,38 +1,15 @@
-import { ReactNode, useState } from 'react';
 import { isBasicRole } from '@/types';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, Cpu, FolderOpen, GitFork, History, Home, KeyRound, LayoutDashboard, LogOut, Settings, Star, Trash2, Users, X } from 'lucide-react';
+import { Cpu, FolderOpen, GitFork, History, Home, KeyRound, LayoutDashboard, LogOut, Settings, Trash2, Users, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { useUi } from '@/store/ui';
-import { FolderTree } from './FolderTree';
-
-function Section({ title, icon, children, storageKey }: { title: string; icon: ReactNode; children: ReactNode; storageKey: string }) {
-  const [open, setOpen] = useState(() => localStorage.getItem(storageKey) !== '0');
-  return (
-    <div className="mt-5 px-3">
-      <button onClick={() => { setOpen(!open); localStorage.setItem(storageKey, open ? '0' : '1'); }}
-        className="mb-1.5 flex w-full items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-wider opacity-70 hover:opacity-100">
-        {icon}<span className="flex-1 text-left">{title}</span>
-        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !open && '-rotate-90')} />
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-            {children}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 function SidebarBody({ onNavigate, scope }: { onNavigate?: () => void; scope: string }) {
   const user = useAuth((s) => s.user)!;
   const logout = useAuth((s) => s.logout);
-  const favorites = useData((s) => s.favorites);
   const pending = useData((s) => s.pendingReviews);
   const { pathname } = useLocation();
   const inFiles = pathname.startsWith('/browse') || pathname.startsWith('/folders') || pathname.startsWith('/files');
@@ -75,26 +52,6 @@ function SidebarBody({ onNavigate, scope }: { onNavigate?: () => void; scope: st
             </NavLink>
           ))}
         </nav>
-
-        <Section title="รายการโปรด" icon={<Star className="h-3.5 w-3.5" />} storageKey="dsp_sec_fav">
-          {favorites.length === 0 ? (
-            <p className="px-3 text-xs opacity-60">กดดาวที่ไฟล์หรือโฟลเดอร์เพื่อปักหมุดไว้ที่นี่</p>
-          ) : (
-            <div className="space-y-0.5">
-              {favorites.slice(0, 10).map((f) => (
-                <Link key={`${f.type}:${f.id}`} to={f.type === 'file' ? `/files/${f.id}` : `/folders/${f.id}`} onClick={onNavigate}
-                  className={cn('side-item', pathname.endsWith(f.id) && 'active')} title={f.path}>
-                  <span className={cn('h-2 w-2 shrink-0', f.type === 'file' ? 'rounded-full' : 'rounded-sm')} style={{ background: f.color }} />
-                  <span className="truncate">{f.name}</span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section title="โฟลเดอร์" icon={<FolderOpen className="h-3.5 w-3.5" />} storageKey="dsp_sec_tree">
-          <FolderTree onNavigate={onNavigate} />
-        </Section>
       </div>
 
       <div className="border-t border-white/10 p-3">
