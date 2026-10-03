@@ -2,9 +2,11 @@ import { DragEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } 
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Rnd } from 'react-rnd';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Eye, Grid3x3, Maximize, Pencil, RefreshCw, Save, Settings2, Trash2, Upload, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, Eye, Expand, Grid3x3, Layers, Maximize, Pencil, RefreshCw, Save, Settings2, Shrink, SlidersHorizontal, Trash2, Upload, ZoomIn, ZoomOut } from 'lucide-react';
 import { dashboardsApi, uploadsApi } from '@/api/endpoints';
-import { newWidget, WIDGETS, WidgetView } from '@/components/dashboard/widgets';
+import { DashCtx } from '@/components/dashboard/dashContext';
+import { LayersPanel } from '@/components/dashboard/LayersPanel';
+import { newWidget, WIDGET_GROUPS, WIDGETS, WidgetView } from '@/components/dashboard/widgets';
 import { WidgetConfigPanel } from '@/components/dashboard/WidgetConfigPanel';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Field, Segmented, TextInput, Toggle } from '@/components/ui/Inputs';
@@ -13,7 +15,7 @@ import { Popover } from '@/components/ui/Popover';
 import { isTyping, useLoad } from '@/hooks';
 import { cn } from '@/lib/cn';
 import { confirmDialog, toast } from '@/store/ui';
-import { DashboardMeta, LV, Widget, WidgetType } from '@/types';
+import { ColumnFilter, DashboardMeta, LV, Widget, WidgetType } from '@/types';
 
 const PRESETS = [
   { label: 'HD 1280×720', w: 1280, h: 720 }, { label: 'FHD 1600×900', w: 1600, h: 900 }, { label: 'Full HD 1920×1080', w: 1920, h: 1080 },
@@ -36,6 +38,10 @@ export default function DashboardPage() {
   const [fit, setFit] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [settings, setSettings] = useState(false);
+  const [slicers, setSlicers] = useState<Record<string, ColumnFilter | null>>({});
+  const [full, setFull] = useState(false);
+  const [panel, setPanel] = useState<'props' | 'layers'>('props');
+  const page = useRef<HTMLDivElement>(null);
   const settingsBtn = useRef<HTMLButtonElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const canManage = (data?.level ?? 0) >= LV.manage;
@@ -50,22 +56,35 @@ export default function DashboardPage() {
 
   const fitZoom = useCallback(() => {
     if (!viewport.current || !meta) return;
-    const w = viewport.current.clientWidth - 48;
-    setZoom(Math.max(0.2, Math.min(1.5, Math.round((w / meta.canvas.width) * 100) / 100)));
-  }, [meta]);
+    const pad = full ? 0 : 48;
+    const w = viewport.current.clientWidth - pad;
+    let z = w / meta.canvas.width;
+    setZoom(Math.max(0.2, Math.min(full ? 4 : 1.5, Math.round(z * 1000) / 1000)));
+  }, [meta, full]);
   useLayoutEffect(() => {
     if (!fit) return;
     fitZoom();
     const ro = new ResizeObserver(fitZoom);
     if (viewport.current) ro.observe(viewport.current);
     return () => ro.disconnect();
-  }, [fit, fitZoom, edit, selected]);
+  }, [fit, fitZoom, edit, selected, full]);
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+
+  useEffect(() => {
+    const on = () => { const f = document.fullscreenElement === page.current; setFull(f); if (f) { setFit(true); setSelected(null); } };
+    document.addEventListener('fullscreenchange', on);
+    return () => document.removeEventListener('fullscreenchange', on);
+  }, []);
+  useEffect(() => { if (selected) setPanel('props'); }, [selected]);
+  const toggleFull = async () => {
+    try { if (document.fullscreenElement) await document.exitFullscreen(); else { setEdit(false); await page.current?.requestFullscreen(); } }
+    catch { toast.info('เบราว์เซอร์ไม่รองรับโหมดเต็มจอ'); }
+  };
 
   const change = (fn: (ws: Widget[]) => Widget[]) => { setWidgets(fn); setDirty(true); };
   const update = (id: string, p: Partial<Widget>) => change((ws) => ws.map((w) => (w.id === id ? { ...w, ...p } : w)));
@@ -101,6 +120,12 @@ export default function DashboardPage() {
     sorted.splice(j, 0, it);
     return sorted.map((w, k) => ({ ...w, z: k + 1 }));
   });
+
+  const reorder = (idsTopFirst: string[]) => change((ws) => {
+    const zOf = new Map(idsTopFirst.map((id, i) => [id, idsTopFirst.length - i]));
+    return ws.map((w) => ({ ...w, z: zOf.get(w.id) ?? w.z }));
+  });
+  const setSlicer = useCallback((id: string, f: ColumnFilter | null) => setSlicers((s) => ({ ...s, [id]: f })), []);
 
   const save = async () => {
     if (!meta) return;
@@ -143,9 +168,12 @@ export default function DashboardPage() {
   const bg = meta.background ?? {};
   const g = meta.canvas.gridSize;
 
+  const pad = full ? 0 : 48;
   return (
-    <div className="flex h-[calc(100dvh-4rem)] flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-3 sm:px-6">
+    <DashCtx.Provider value={{ slicers, setSlicer, widgets }}>
+    <div ref={page} className={cn('flex flex-col bg-app', full ? 'h-screen' : 'h-[calc(100dvh-4rem)]')}>
+      {full && <button onClick={() => void toggleFull()} className="absolute right-3 top-3 z-[60] inline-flex items-center gap-1.5 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-medium text-white opacity-0 backdrop-blur transition-opacity hover:opacity-100 focus:opacity-100"><Shrink className="h-3.5 w-3.5" />ออกจากเต็มจอ (Esc)</button>}
+      <div className={cn('shrink-0 flex-wrap items-center gap-2 px-4 pb-3 sm:px-6', full ? 'hidden' : 'flex')}>
         <Link to={`/files/${fileId}`} className="grid h-9 w-9 place-items-center rounded-xl hover:bg-ink/5" aria-label="กลับไปที่ไฟล์"><ArrowLeft className="h-5 w-5" /></Link>
         <div className="min-w-0">
           <p className="truncate text-xs text-muted">{data.file.name}</p>
@@ -158,6 +186,7 @@ export default function DashboardPage() {
           <span className="w-12 text-center text-xs font-medium tabular-nums">{Math.round(zoom * 100)}%</span>
           <IconButton label="ซูมเข้า" onClick={() => { setFit(false); setZoom((z) => Math.min(2, Math.round((z + 0.1) * 10) / 10)); }}><ZoomIn className="h-4 w-4" /></IconButton>
           <IconButton label="พอดีหน้าจอ" active={fit} onClick={() => setFit(true)}><Maximize className="h-4 w-4" /></IconButton>
+          <IconButton label="เต็มจอ (Full screen)" onClick={() => void toggleFull()}><Expand className="h-4 w-4" /></IconButton>
           {canManage && (
             <>
               <div className="mx-1 h-6 w-px bg-line" />
@@ -177,24 +206,32 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-3 px-3 pb-3 sm:px-6">
-        {edit && (
+      <div className={cn('flex min-h-0 flex-1 gap-3', full ? 'p-0' : 'px-3 pb-3 sm:px-6')}>
+        {edit && !full && (
           <motion.aside initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} className="ds-card hidden w-[92px] shrink-0 flex-col gap-1 overflow-y-auto p-2 md:flex">
-            {WIDGETS.map((w) => (
-              <button key={w.type} draggable onDragStart={(e) => e.dataTransfer.setData(WMIME, w.type)} onClick={() => add(w.type)}
-                className="flex flex-col items-center gap-1 rounded-xl px-1 py-2.5 text-[11px] text-muted transition-colors hover:bg-primary/10 hover:text-primary" title={`เพิ่ม${w.label} (คลิกหรือลากลงผืนผ้าใบ)`}>
-                <span className="[&>svg]:h-5 [&>svg]:w-5">{w.icon}</span>{w.label}
-              </button>
+            {WIDGET_GROUPS.map((g) => (
+              <div key={g.label} className="mb-1">
+                <p className="px-1 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted/70">{g.label}</p>
+                {g.types.map((t) => {
+                  const w = WIDGETS.find((x) => x.type === t)!;
+                  return (
+                    <button key={w.type} draggable onDragStart={(e) => e.dataTransfer.setData(WMIME, w.type)} onClick={() => add(w.type)}
+                      className="flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] text-muted transition-colors hover:bg-primary/10 hover:text-primary" title={`${w.hint ? `${w.hint}\n` : ''}เพิ่ม${w.label} (คลิกหรือลากลงผืนผ้าใบ)`}>
+                      <span className="[&>svg]:h-5 [&>svg]:w-5">{w.icon}</span><span className="text-center leading-tight">{w.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             ))}
           </motion.aside>
         )}
 
-        <div ref={viewport} className="relative min-w-0 flex-1 overflow-auto rounded-theme border border-line bg-ink/[.035]" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
-          <div className="p-6" style={{ width: meta.canvas.width * zoom + 48, height: meta.canvas.height * zoom + 48 }}>
+        <div ref={viewport} className={cn('relative min-w-0 flex-1 overflow-auto', full ? 'bg-black' : 'rounded-theme border border-line bg-ink/[.035]')} style={full ? { scrollbarGutter: 'stable' } : undefined} onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
+          <div className={cn(full ? 'mx-auto' : 'p-6')} style={{ width: meta.canvas.width * zoom + pad, height: meta.canvas.height * zoom + pad }}>
             <div style={{ width: meta.canvas.width * zoom, height: meta.canvas.height * zoom }} className="relative">
               <div onDragOver={(e) => { if (e.dataTransfer.types.includes(WMIME)) e.preventDefault(); }} onDrop={onDrop}
                 onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}
-                className="absolute left-0 top-0 origin-top-left overflow-hidden rounded-[6px] shadow-[0_8px_30px_-12px_rgb(16_24_40/.35)]"
+                className={cn('absolute left-0 top-0 origin-top-left overflow-hidden', full ? '' : 'rounded-[6px] shadow-[0_8px_30px_-12px_rgb(16_24_40/.35)]')}
                 style={{
                   width: meta.canvas.width, height: meta.canvas.height, transform: `scale(${zoom})`,
                   backgroundColor: bg.color ?? '#F4F6FB',
@@ -235,10 +272,20 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {edit && sel && (
-          <motion.aside key="cfg" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="ds-card hidden w-[320px] shrink-0 overflow-hidden lg:block">
-            <WidgetConfigPanel w={sel} fileId={fileId} fileName={data.file.name} sheets={data.sheets} onChange={(p) => update(sel.id, p)} onRemove={() => remove(sel.id)}
-              onDuplicate={() => duplicate(sel.id)} onLayer={(op) => layer(sel.id, op)} />
+        {edit && !full && (
+          <motion.aside key="cfg" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="ds-card hidden w-[320px] shrink-0 flex-col overflow-hidden lg:flex">
+            <div className="flex border-b border-line p-2">
+              <Segmented size="sm" value={sel ? panel : 'layers'} onChange={setPanel}
+                options={[{ value: 'props', label: 'คุณสมบัติ', icon: <SlidersHorizontal /> }, { value: 'layers', label: 'เลเยอร์', icon: <Layers /> }]} />
+            </div>
+            <div className="min-h-0 flex-1">
+              {sel && panel === 'props' ? (
+                <WidgetConfigPanel key={sel.id} w={sel} fileId={fileId} fileName={data.file.name} sheets={data.sheets} onChange={(p) => update(sel.id, p)} onRemove={() => remove(sel.id)}
+                  onDuplicate={() => duplicate(sel.id)} onLayer={(op) => layer(sel.id, op)} />
+              ) : (
+                <LayersPanel widgets={widgets} selected={selected} onSelect={(id) => { setSelected(id); setPanel('props'); }} onReorder={reorder} onUpdate={update} />
+              )}
+            </div>
           </motion.aside>
         )}
       </div>
@@ -277,5 +324,6 @@ export default function DashboardPage() {
         </div>
       </Popover>
     </div>
+    </DashCtx.Provider>
   );
 }

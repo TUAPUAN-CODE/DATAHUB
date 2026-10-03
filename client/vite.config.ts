@@ -4,8 +4,10 @@ import path from 'path';
 
 const API = process.env.VITE_PROXY_TARGET ?? 'http://172.48.0.116:4000';
 
-export default defineConfig({
-  plugins: [react()],
+// `npm run dev:https` serves the dev site over HTTPS (self-signed certificate, accept the browser warning once):
+// phones/tablets allow the CAMERA only on https:// pages (or localhost), so QR scanning by camera needs it.
+export default defineConfig(async ({ mode }) => ({
+  plugins: [react(), ...(mode === 'https' ? [(await import('@vitejs/plugin-basic-ssl')).default()] : [])],
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   server: {
     host: true,
@@ -28,4 +30,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

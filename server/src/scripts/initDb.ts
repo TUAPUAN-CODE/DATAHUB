@@ -6,6 +6,7 @@ import path from 'path';
 import sql from 'mssql';
 import { dbConfig } from '../config/db';
 import { env } from '../config/env';
+import { applyMigrations } from './migrate';
 
 async function main() {
   const force = process.argv.includes('--force');
@@ -33,9 +34,10 @@ async function main() {
   const db = await new sql.ConnectionPool(dbConfig(name, 1)).connect();
   const has = await db.request().query(`SELECT OBJECT_ID(N'dbo.Users') AS id`);
   if (has.recordset[0].id) {
-    console.log('Schema already present — nothing to do. Use npm run db:reset to recreate.');
+    console.log('Schema already present. Applying pending migrations… (use db:reset to recreate everything)');
     await db.close();
-    return;
+    await applyMigrations();
+    process.exit(0);
   }
   const file = path.resolve(__dirname, '../../../database/01_schema.sql');
   const batches = fs.readFileSync(file, 'utf8').split(/^\s*GO\s*$/im).map((b) => b.trim()).filter(Boolean);
@@ -43,8 +45,10 @@ async function main() {
     await db.request().batch(b);
     process.stdout.write(`\rApplying schema ${i + 1}/${batches.length}`);
   }
-  console.log('\nSchema applied. Next: npm run db:seed');
   await db.close();
+  await applyMigrations();
+  console.log('\nSchema applied. Next: npm run db:seed');
+  process.exit(0);
 }
 
 main().catch((e) => {

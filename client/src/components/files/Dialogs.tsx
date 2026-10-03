@@ -7,7 +7,7 @@ import { fmtDateTime, PERM_LABEL } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { toast } from '@/store/ui';
-import { AccessGrant, FolderItem, LV, Perm } from '@/types';
+import { AccessGrant, FolderItem, LV, Perm, isBasicRole } from '@/types';
 import { Button } from '../ui/Button';
 import { Field, Select, TextArea, TextInput, Toggle } from '../ui/Inputs';
 import { Avatar, ColorInput, PermBadge, RoleBadge, Skeleton } from '../ui/misc';
@@ -94,7 +94,7 @@ export function MoveDialog({ open, onClose, item, onDone }: { open: boolean; onC
   return (
     <Modal open={open} onClose={onClose} title={`ย้าย “${item?.name ?? ''}”`} description="เลือกโฟลเดอร์ปลายทางที่คุณมีสิทธิ์เขียน" size="sm"
       footer={<>
-        {item?.type === 'folder' && role !== 'user' && <Button variant="ghost" className="mr-auto" onClick={() => submit(true)} disabled={busy}>ย้ายไประดับบนสุด</Button>}
+        {item?.type === 'folder' && !isBasicRole(role) && <Button variant="ghost" className="mr-auto" onClick={() => submit(true)} disabled={busy}>ย้ายไประดับบนสุด</Button>}
         <Button variant="secondary" onClick={onClose}>ยกเลิก</Button>
         <Button onClick={() => submit(false)} loading={busy} disabled={!target}>ย้ายมาที่นี่</Button>
       </>}>
@@ -125,6 +125,8 @@ export function DuplicateDialog({ open, onClose, file, onDone }: { open: boolean
     </Modal>
   );
 }
+
+import { ShareLinksSection } from './ShareLinks';
 
 /* ---------------- Share ---------------- */
 const EXPIRY = [
@@ -166,7 +168,8 @@ export function ShareDialog({ open, onClose, target }: { open: boolean; onClose:
   const grant = async (uid: string, p: Perm, exp: string | null) => {
     try {
       const r = await accessApi.grant(target.type, target.id, { userId: uid, permission: p, expiresAt: exp });
-      if (r.cappedToWrite) toast.info('ผู้ใช้ระดับ User ใช้สิทธิ์ได้สูงสุด "แก้ไขข้อมูล"');
+      if (r.cappedTo === 'write') toast.info('ผู้ใช้ระดับ User ใช้สิทธิ์ได้สูงสุด "แก้ไขข้อมูล"');
+      if (r.cappedTo === 'read') toast.info('ผู้ใช้ระดับ Viewer ใช้สิทธิ์ได้สูงสุด "ดูข้อมูล"');
       void reload(true);
     } catch (e) { toast.error(e); }
   };
@@ -184,6 +187,7 @@ export function ShareDialog({ open, onClose, target }: { open: boolean; onClose:
   return (
     <Modal open={open} onClose={onClose} size="lg" icon={<Share2 className="h-5 w-5" />} title={`แชร์ “${target.name}”`}
       description={target.type === 'folder' ? 'สิทธิ์ของโฟลเดอร์จะสืบทอดไปยังโฟลเดอร์ย่อยและไฟล์ทั้งหมดภายใน' : 'สิทธิ์รายไฟล์ ใช้ร่วมกับสิทธิ์ที่สืบทอดจากโฟลเดอร์ (ใช้ระดับที่สูงกว่า)'}>
+      {target.type === 'file' && <ShareLinksSection fileId={target.id} />}
       <div className="flex flex-col gap-2 rounded-2xl bg-ink/[.03] p-3 sm:flex-row">
         <div className="min-w-0 flex-1">
           <SearchSelect value={userId} onChange={(v) => setUserId(v)} placeholder="ค้นหาผู้ใช้เพื่อเพิ่ม…"
@@ -242,7 +246,7 @@ export function RequestAccessForm({ target, onDone, compact }: { target: { type:
         <Field label="ระดับสิทธิ์ที่ขอ">
           <Select value={perm} onChange={(e) => setPerm(e.target.value as Perm)}>
             <option value="read">{PERM_LABEL.read}</option><option value="write">{PERM_LABEL.write}</option>
-            {role !== 'user' && <option value="manage">{PERM_LABEL.manage}</option>}
+            {!isBasicRole(role) && <option value="manage">{PERM_LABEL.manage}</option>}
           </Select>
         </Field>
         <Field label="ระยะเวลา">

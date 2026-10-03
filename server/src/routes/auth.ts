@@ -22,7 +22,7 @@ const loginLimiter = rateLimit({
   message: { success: false, error: { code: 'RATE_LIMIT', message: 'พยายามเข้าสู่ระบบบ่อยเกินไป กรุณารอสักครู่' } },
 });
 
-async function issueRefresh(res: Response, userId: string, ua?: string) {
+export async function issueRefresh(res: Response, userId: string, ua?: string) {
   const secret = crypto.randomBytes(48).toString('hex');
   const expires = new Date(Date.now() + env.jwt.refreshDays * 86400_000);
   const row = await q1(

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, History, RotateCcw, Rows3, Trash2, Undo2 } from 'lucide-react';
+import { ArrowRight, Camera, History, LayoutGrid, RotateCcw, Rows3, Trash2, Undo2 } from 'lucide-react';
 import { apiError } from '@/api/client';
-import { CellVersion, cellsApi, rowsApi } from '@/api/endpoints';
+import { CellVersion, cellsApi, rowsApi, SheetSettings } from '@/api/endpoints';
+import { buildFormFields, coerceScanned, limitError, useNarrow } from '@/modules/formLayout/formLayout';
+import { FormDesigner } from '@/modules/formLayout/FormDesigner';
+import { RowScanBar } from '@/modules/scan/RowScan';
+import { CameraScanner } from '@/modules/scan/CameraScanner';
+import { beep } from '@/modules/scan/beep';
+import { scanApi } from '@/modules/scan/api';
 import { useLoad } from '@/hooks';
 import { cn } from '@/lib/cn';
 import { displayValue, fmtDateTime, relTime } from '@/lib/format';
@@ -10,32 +16,85 @@ import type { CellValue, Column, Row } from '@/types';
 import { Button } from '../ui/Button';
 import { Checkbox, Field, TextArea, TextInput } from '../ui/Inputs';
 import { Avatar, EmptyState, Skeleton } from '../ui/misc';
+import { isComputed } from '@/lib/columnTypes';
 import { Modal } from '../ui/Modal';
 import { FieldInput } from './FieldInput';
+import { ImageGallery, toUrls } from './ImageCell';
+import { dependentsOf } from '@/lib/lookup';
 
 const SOURCE: Record<string, string> = { edit: 'แก้ไข', create: 'สร้าง', paste: 'วาง', rollback: 'ย้อนค่า', type_change: 'แปลงชนิด', undo: 'ย้อนกลับ', fill: 'เติม' };
 
 /* ---------------- Row form (add / edit) ---------------- */
-export function RowFormModal({ open, onClose, columns, row, users, canWrite, onCreate, onSave }: {
+const SCANNABLE = new Set(['varchar', 'text', 'int', 'float', 'url', 'email', 'select', 'date', 'datetime', 'boolean']);
+
+export function RowFormModal({ open, onClose, columns, row, users, canWrite, onCreate, onSave, sheetId, settings, canManage, onLayoutSaved }: {
   open: boolean; onClose: () => void; columns: Column[]; row: Row | null; users: Record<string, { name: string }>; canWrite: boolean;
   onCreate: (values: Record<string, CellValue>) => Promise<unknown>; onSave: (changes: { columnId: string; value: CellValue }[]) => Promise<unknown>;
+  sheetId: string; settings?: SheetSettings; canManage: boolean; onLayoutSaved: () => void;
 }) {
   const [values, setValues] = useState<Record<string, CellValue>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [again, setAgain] = useState(false);
+  const [designing, setDesigning] = useState(false);
+  const [scanField, setScanField] = useState<string | null>(null);
+  const narrow = useNarrow();
+  const { fields, perRow } = useMemo(() => buildFormFields(columns, settings?.formLayout, narrow), [columns, settings?.formLayout, narrow]);
+  const hasScan = !!settings?.scanProfiles?.length && canWrite;
   const init = () => {
     const v: Record<string, CellValue> = {};
     columns.forEach((c) => { v[c.id] = row ? row.values[c.id] ?? null : c.defaultValue ?? null; });
     setValues(v);
     setErrors({});
+    setScanField(null);
   };
-  useEffect(() => { if (open) init(); }, [open, row?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) { init(); setDesigning(false); } }, [open, row?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Changing a column clears the dependent drop-downs (their options were filtered by the old value) */
+  const withDependentsCleared = (colId: string, v: CellValue) => {
+    const next = { ...values, [colId]: v };
+    for (const d of dependentsOf(colId, columns)) if (!d.isRequired) next[d.id] = null;
+    return next;
+  };
+  /** One QR → many fields (formats + check against the other sheet are the sheet's scan settings); nothing is saved yet */
+  const resolveScan = async (text: string) => {
+    const r = await scanApi.resolve(sheetId, text);
+    const next = { ...values };
+    const errs: Record<string, string> = {};
+    let count = 0;
+    for (const [cid, t] of Object.entries(r.values)) {
+      const col = columns.find((c) => c.id === cid);
+      if (!col || isComputed(col)) continue;
+      const v = coerceScanned(col, t);
+      if (v === null) { errs[cid] = `ใช้ค่า “${t}” กับคอลัมน์นี้ไม่ได้`; continue; }
+      const le = limitError(col, t);
+      if (le) { errs[cid] = le; continue; }
+      next[cid] = v; count++;
+    }
+    setValues(next);
+    setErrors((e) => ({ ...e, ...errs }));
+    if (!count && Object.keys(errs).length) throw new Error(Object.values(errs)[0]);
+    return { count, profile: r.profile.name };
+  };
+  /** One reading → ONE field */
+  const scanInto = (col: Column, text: string) => {
+    const le = limitError(col, text);
+    const v = coerceScanned(col, text);
+    if (le || v === null) { beep(false); setErrors((e) => ({ ...e, [col.id]: le ?? `ใช้ค่า “${text.trim()}” กับคอลัมน์นี้ไม่ได้` })); return; }
+    beep(true);
+    setValues((cur) => withDependentsClearedOn(cur, col.id, v));
+    setErrors((e) => { const { [col.id]: _x, ...rest } = e; void _x; return rest; });
+    setScanField(null);
+  };
+  const withDependentsClearedOn = (cur: Record<string, CellValue>, colId: string, v: CellValue) => {
+    const next = { ...cur, [colId]: v };
+    for (const d of dependentsOf(colId, columns)) if (!d.isRequired) next[d.id] = null;
+    return next;
+  };
   const empty = (v: CellValue) => v === null || v === '' || (Array.isArray(v) && !v.length);
   const submit = async () => {
     const errs: Record<string, string> = {};
-    columns.forEach((c) => { if (c.isRequired && empty(values[c.id] ?? null)) errs[c.id] = 'จำเป็นต้องกรอก'; });
+    columns.forEach((c) => { if (c.isRequired && c.dataType !== 'doc_number' && empty(values[c.id] ?? null)) errs[c.id] = 'จำเป็นต้องกรอก'; });
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setBusy(true);
@@ -57,22 +116,43 @@ export function RowFormModal({ open, onClose, columns, row, users, canWrite, onC
   };
 
   return (
-    <Modal open={open} onClose={onClose} size="lg" icon={<Rows3 className="h-5 w-5" />} title={row ? `แถว #${row.order}` : 'เพิ่มแถวใหม่'}
+    <Modal open={open} onClose={onClose} size={perRow >= 3 ? 'xl' : 'lg'} icon={<Rows3 className="h-5 w-5" />} title={row ? `แถว #${row.order}` : 'เพิ่มแถวใหม่'}
       description={row ? `สร้างโดย ${users[row.createdBy]?.name ?? 'ผู้ใช้'} · ${fmtDateTime(row.createdAt)}` : 'ช่องที่มี * จำเป็นต้องกรอก'}
-      footer={<>
+      footer={designing ? undefined : <>
         {!row && <Checkbox checked={again} onChange={setAgain} label="เพิ่มต่ออีกแถว" className="mr-auto" />}
         <Button variant="secondary" onClick={onClose}>{canWrite ? 'ยกเลิก' : 'ปิด'}</Button>
         {canWrite && <Button onClick={submit} loading={busy}>{row ? 'บันทึก' : 'เพิ่มแถว'}</Button>}
       </>}>
-      <div className="grid max-h-[62vh] gap-4 overflow-y-auto pr-1 sm:grid-cols-2">
-        {columns.map((c, i) => (
-          <Field key={c.id} label={c.name} required={c.isRequired} error={errors[c.id]} className={cn((c.dataType === 'text' || c.dataType === 'multi_select') && 'sm:col-span-2')}
-            hint={row?.meta[c.id] ? `แก้ไขล่าสุด ${users[row.meta[c.id].by]?.name ?? ''} · ${relTime(row.meta[c.id].at)}` : c.description ?? undefined}>
-            {canWrite ? <FieldInput col={c} value={values[c.id]} onChange={(v) => setValues({ ...values, [c.id]: v })} invalid={!!errors[c.id]} autoFocus={i === 0} />
-              : <div className="min-h-10 rounded-xl bg-ink/[.03] px-3 py-2.5 text-sm">{displayValue(c, values[c.id] ?? null) || <span className="text-muted">—</span>}</div>}
-          </Field>
-        ))}
-      </div>
+      {designing ? (
+        <FormDesigner sheetId={sheetId} columns={columns} layout={settings?.formLayout} onCancel={() => setDesigning(false)} onSaved={() => { setDesigning(false); onLayoutSaved(); }} />
+      ) : (
+        <div className="space-y-3">
+          {(hasScan || canManage) && (
+            <div className="space-y-2">
+              {hasScan && <RowScanBar resolve={resolveScan} />}
+              {canManage && <button type="button" onClick={() => setDesigning(true)} className="flex items-center gap-1.5 text-xs text-primary hover:underline"><LayoutGrid className="h-3.5 w-3.5" />ออกแบบฟอร์มนี้ (จำนวนช่องต่อบรรทัด / ลำดับ / ซ่อนช่อง)</button>}
+            </div>
+          )}
+          <div className="grid max-h-[58vh] gap-4 overflow-y-auto pr-1" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
+            {fields.map(({ col: c, span }, i) => {
+              const scannable = canWrite && !isComputed(c) && SCANNABLE.has(c.dataType);
+              return (
+                <div key={c.id} style={{ gridColumn: `span ${span} / span ${span}` }} className="min-w-0">
+                  <Field label={<span className="flex items-center justify-between gap-2"><span>{c.name}</span>{scannable && <button type="button" onClick={() => setScanField((f) => (f === c.id ? null : c.id))} title="สแกนใส่ช่องนี้" aria-label={`สแกนใส่ ${c.name}`}
+                    className={cn('rounded-md p-0.5', scanField === c.id ? 'bg-primary/15 text-primary' : 'text-muted hover:text-primary')}><Camera className="h-4 w-4" /></button>}</span>}
+                    required={c.isRequired} error={errors[c.id]}
+                    hint={row?.meta[c.id] ? `แก้ไขล่าสุด ${users[row.meta[c.id].by]?.name ?? ''} · ${relTime(row.meta[c.id].at)}` : c.description ?? undefined}>
+                    {canWrite && !isComputed(c) ? <FieldInput col={c} value={values[c.id]} rowValues={values} onChange={(v) => setValues(withDependentsCleared(c.id, v))} invalid={!!errors[c.id]} autoFocus={i === 0} />
+                      : c.dataType === 'image' ? <ImageGallery urls={toUrls(values[c.id])} />
+                      : <div className="min-h-10 rounded-xl bg-ink/[.03] px-3 py-2.5 text-sm">{displayValue(c, values[c.id] ?? null) || <span className="text-muted">—</span>}</div>}
+                  </Field>
+                  {scanField === c.id && <div className="mt-1.5"><CameraScanner onText={(t) => scanInto(c, t)} onClose={() => setScanField(null)} /></div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

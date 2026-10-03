@@ -1,7 +1,7 @@
 import { Router, Request } from 'express';
 import { z } from 'zod';
 import { q, q1, T } from '../config/db';
-import { ROLE_SQL } from '../middleware/auth';
+import { isBasicRole, ROLE_SQL } from '../middleware/auth';
 import { audit } from '../shared/audit';
 import { ah, badRequest, conflict, forbidden, notFound, ok, parse, pid, zId } from '../shared/http';
 import { notify } from '../shared/notify';
@@ -87,6 +87,13 @@ async function upsertGrant(kind: 'file' | 'folder', targetId: string, g: z.infer
   return u;
 }
 
+/** Level actually usable by a recipient whose role caps their permission (null = not capped) */
+function cappedTo(role: string, perm: string): 'read' | 'write' | null {
+  if (role === 'viewer' && perm !== 'read') return 'read';
+  if (role === 'user' && perm === 'manage') return 'write';
+  return null;
+}
+
 router.put(
   '/files/:id/access',
   ah(async (req, res) => {
@@ -102,7 +109,7 @@ router.put(
       message: `${req.user!.displayName} ให้สิทธิ์ "${PERM_TH[g.permission]}" ในไฟล์ "${file.file_name}"`,
       link: `/files/${id}`,
     });
-    ok(res, { granted: true, cappedToWrite: target.role === 'user' && g.permission === 'manage' });
+    ok(res, { granted: true, cappedTo: cappedTo(target.role, g.permission) });
   }),
 );
 
@@ -154,7 +161,7 @@ router.put(
       message: `${req.user!.displayName} ให้สิทธิ์ "${PERM_TH[g.permission]}" ในโฟลเดอร์ "${folder.name}"`,
       link: `/folders/${id}`,
     });
-    ok(res, { granted: true, cappedToWrite: target.role === 'user' && g.permission === 'manage' });
+    ok(res, { granted: true, cappedTo: cappedTo(target.role, g.permission) });
   }),
 );
 
@@ -220,6 +227,7 @@ router.post(
       }),
       req.body,
     );
+    if (u.role === 'viewer' && body.permission !== 'read') throw badRequest('บทบาท Viewer ขอสิทธิ์ได้เฉพาะระดับ "ดูข้อมูล"');
     if (u.role === 'user' && body.permission === 'manage') throw badRequest('ผู้ใช้ทั่วไปขอสิทธิ์ได้สูงสุดระดับ "แก้ไขข้อมูล"');
     const ctx = await PermCtx.load(u);
     let name: string;
@@ -269,7 +277,7 @@ router.get(
   '/access-requests/pending-count',
   ah(async (req, res) => {
     const u = req.user!;
-    if (u.role === 'user') return ok(res, { count: 0 });
+    if (isBasicRole(u.role)) return ok(res, { count: 0 });
     const ctx = await PermCtx.load(u);
     const rows = await q(`${REQ_SQL} WHERE ar.status = 'pending'`);
     ok(res, { count: rows.filter((r) => r.requester_id !== u.id && canReview(ctx, r)).length });

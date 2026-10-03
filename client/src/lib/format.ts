@@ -62,6 +62,8 @@ export function displayValue(col: Column, v: CellValue): string {
       return optionLabel(col, String(v));
     case 'multi_select':
       return (v as string[]).map((x) => optionLabel(col, x)).join(', ');
+    case 'image':
+      return Array.isArray(v) ? (v as string[]).map((u) => (u.startsWith('/') ? `${window.location.origin}${u}` : u)).join(' | ') : '';
     default:
       return String(v);
   }
@@ -81,7 +83,7 @@ export function colorFor(s: string) {
 export const SWATCHES = PALETTE;
 
 export const PERM_LABEL: Record<string, string> = { none: 'ไม่มีสิทธิ์', read: 'ดูข้อมูล', write: 'แก้ไขข้อมูล', manage: 'จัดการ' };
-export const ROLE_LABEL: Record<string, string> = { user: 'User', master: 'Master', admin: 'Admin' };
+export const ROLE_LABEL: Record<string, string> = { viewer: 'Viewer (ดูอย่างเดียว)', user: 'User (กรอกข้อมูล)', master: 'Master', admin: 'Admin' };
 export const levelToPerm = (l: number) => (['none', 'read', 'write', 'manage'] as const)[Math.max(0, Math.min(3, l))];
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -93,7 +95,7 @@ export const ACTION_LABEL: Record<string, string> = {
   file_restore: 'กู้คืนไฟล์', file_purge: 'ลบไฟล์ถาวร',
   sheet_create: 'สร้างชีต', sheet_update: 'แก้ไขชีต', sheet_delete: 'ลบชีต', sheet_rollback: 'ย้อนข้อมูลทั้งชีต',
   column_create: 'เพิ่มคอลัมน์', column_update: 'แก้ไขคอลัมน์', column_delete: 'ลบคอลัมน์', column_restore: 'กู้คืนคอลัมน์',
-  row_create: 'เพิ่มแถว', row_delete: 'ลบแถว', row_restore: 'กู้คืนแถว', row_rollback: 'ย้อนข้อมูลแถว',
+  row_create: 'เพิ่มแถว', row_mix: 'ผสมวัตถุดิบ', rows_import: 'นำเข้าข้อมูลจากไฟล์', row_delete: 'ลบแถว', row_restore: 'กู้คืนแถว', row_rollback: 'ย้อนข้อมูลแถว',
   cell_update: 'แก้ไขเซลล์', cell_rollback: 'ย้อนค่าเซลล์',
   access_grant: 'ให้สิทธิ์', access_revoke: 'ถอนสิทธิ์', access_request: 'ขอสิทธิ์', access_approve: 'อนุมัติสิทธิ์', access_reject: 'ปฏิเสธคำขอ',
   dashboard_create: 'สร้างแดชบอร์ด', dashboard_update: 'แก้ไขแดชบอร์ด', dashboard_delete: 'ลบแดชบอร์ด',

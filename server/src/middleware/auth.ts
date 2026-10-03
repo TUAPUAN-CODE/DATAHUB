@@ -1,12 +1,16 @@
+import { broadcast, onBroadcast } from '../services/cluster';
 import jwt from 'jsonwebtoken';
 import { RequestHandler } from 'express';
 import { env } from '../config/env';
 import { q1 } from '../config/db';
 import { AppError, forbidden } from '../shared/http';
 
-export type Role = 'user' | 'master' | 'admin';
-export const ROLES: Role[] = ['user', 'master', 'admin'];
-export const ROLE_ID: Record<Role, number> = { user: 1, master: 2, admin: 3 };
+/** viewer = read only · user = data entry (cannot change structure) · master = builds forms/folders · admin = everything */
+export type Role = 'viewer' | 'user' | 'master' | 'admin';
+export const ROLES: Role[] = ['viewer', 'user', 'master', 'admin'];
+export const ROLE_ID: Record<Role, number> = { viewer: 0, user: 1, master: 2, admin: 3 };
+/** Roles without any builder / manager privileges */
+export const isBasicRole = (r: Role) => r === 'user' || r === 'viewer';
 
 export interface AuthUser {
   id: string;
@@ -35,7 +39,9 @@ const CACHE_MS = 30_000;
 export function invalidateUserCache(id?: string) {
   if (id) cache.delete(id.toLowerCase());
   else cache.clear();
+  broadcast('user', id ?? '');
 }
+onBroadcast('user', (id) => { if (id) cache.delete(id.toLowerCase()); else cache.clear(); });
 
 export async function loadAuthUser(id: string): Promise<AuthUser | null> {
   const key = id.toLowerCase();

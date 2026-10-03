@@ -1,16 +1,21 @@
 import { ClipboardEvent, KeyboardEvent, MouseEvent as RMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDownAZ, ArrowUpAZ, ChevronDown, ClipboardPaste, Copy, Eraser, EyeOff, Filter, History, Maximize2, MoveHorizontal,
-  Pin, PinOff, Settings2, SquarePen, Trash2,
+  ArrowDownAZ, ArrowUpAZ, Camera, ChevronDown, ClipboardPaste, Copy, Eraser, Eye, EyeOff, Filter, History, Maximize2, MoveHorizontal,
+  Pin, PinOff, Settings2, SquarePen, Trash2, ArrowDownUp,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { ColumnStat, rowsApi } from '@/api/endpoints';
 import { parseTsv, toTsv } from '@/lib/csv';
-import { TYPE_META } from '@/lib/columnTypes';
+import { isComputed, TYPE_META } from '@/lib/columnTypes';
+import { dependentsOf } from '@/lib/lookup';
 import { displayValue, fmtNumber, relTime } from '@/lib/format';
 import { toast } from '@/store/ui';
 import type { CellValue, Column, Row } from '@/types';
 import { Anchor, MenuItemDef, MenuList, Popover } from '../ui/Popover';
 import { CellDisplay, CellEditor, Move } from './CellView';
+import { alertColor, tint } from '@/modules/alerts/level';
+import { toUrls, uploadImages } from './ImageCell';
+import { useMinuteTick } from '@/modules/alerts/useMinuteTick';
 import type { CellChange, SheetView } from './useSheetView';
 
 interface Pos { r: number; c: number }
@@ -24,12 +29,23 @@ interface Props {
   onFilterColumn: (columnId: string, anchor: HTMLElement) => void;
   onColumnSettings: () => void;
   onDeleteRows: (ids: string[]) => void;
+  /** Ids of the rows touched by the current selection (drives the toolbar delete button) */
+  onSelectRows?: (ids: string[]) => void;
+  /** Opens the read-only full detail of a row (eye icon) */
+  onViewRow?: (row: Row) => void;
 }
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 const EDIT_INLINE_TYPED = new Set(['varchar', 'text', 'int', 'float', 'url', 'email']);
 
-export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHistory, onRowHistory, onFilterColumn, onColumnSettings, onDeleteRows }: Props) {
+function cellStyle(base: React.CSSProperties | undefined, col: Column, values: Row['values'], now: number): React.CSSProperties | undefined {
+  const cfg = col.validation?.alert;
+  if (!cfg) return base;
+  const a = alertColor(cfg, values, now);
+  return a ? { ...base, backgroundColor: tint(a.color, 0.3), boxShadow: `inset 3px 0 0 ${a.color}` } : base;
+}
+
+export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHistory, onRowHistory, onFilterColumn, onColumnSettings, onDeleteRows, onSelectRows, onViewRow }: Props) {
   const { columns: cols, rows, prefs, setPrefs, query, setQuery, commit, users, flash } = view;
   const scrollRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -62,6 +78,8 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
   const totalW = RN + cols.reduce((s, c) => s + colW(c), 0);
 
   const bounds = sel ? { r1: Math.min(sel.a.r, sel.f.r), r2: Math.max(sel.a.r, sel.f.r), c1: Math.min(sel.a.c, sel.f.c), c2: Math.max(sel.a.c, sel.f.c) } : null;
+  const selKey = bounds ? rows.slice(bounds.r1, bounds.r2 + 1).map((r) => r.id).join(',') : '';
+  useEffect(() => { onSelectRows?.(selKey ? selKey.split(',') : []); }, [selKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const inSel = (r: number, c: number) => !!bounds && r >= bounds.r1 && r <= bounds.r2 && c >= bounds.c1 && c <= bounds.c2;
 
   // keep selection valid when data changes
@@ -114,8 +132,25 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
     const row = rows[r];
     if (!col || !row) return;
     if (!canWrite) return toast.info('คุณมีสิทธิ์ดูข้อมูลเท่านั้น', 'ขอสิทธิ์แก้ไขได้จากเมนูของไฟล์');
+    if (isComputed(col)) return toast.info('คอลัมน์นี้คำนวณจากสูตรอัตโนมัติ', 'แก้ไขสูตรได้ที่ “ตั้งค่าคอลัมน์”');
     if (col.dataType === 'boolean') return void commit([{ rowId: row.id, columnId: col.id, value: !row.values[col.id] }]);
     setEditing({ r, c, initial: initial !== undefined && EDIT_INLINE_TYPED.has(col.dataType) ? initial : undefined });
+  };
+
+  /** Tap the camera of an image cell: the phone's camera opens at once, the photo is added to the cell */
+  const captureInto = (row: Row, col: Column) => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*'; inp.setAttribute('capture', 'environment');
+    inp.onchange = async () => {
+      const files = [...(inp.files ?? [])];
+      if (!files.length) return;
+      const cur = toUrls(row.values[col.id]);
+      const max = col.validation?.maxSelections ?? 200;
+      if (cur.length >= max) { toast.info(`ใส่รูปได้ไม่เกิน ${max} รูป`); return; }
+      const added = await uploadImages(files.slice(0, max - cur.length));
+      if (added.length) void commit([{ rowId: row.id, columnId: col.id, value: [...cur, ...added] }]);
+    };
+    inp.click();
   };
 
   const finishEdit = (value: CellValue, mv: Move) => {
@@ -125,7 +160,12 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
     setEditing(null);
     if (row && col) {
       const cur = row.values[col.id] ?? null;
-      if (JSON.stringify(cur) !== JSON.stringify(value ?? null)) void commit([{ rowId: row.id, columnId: col.id, value }]);
+      if (JSON.stringify(cur) !== JSON.stringify(value ?? null)) {
+        const changes: CellChange[] = [{ rowId: row.id, columnId: col.id, value }];
+        // a dependent drop-down (relationship) is cleared when its parent changes
+        for (const d of dependentsOf(col.id, cols)) if (!d.isRequired && row.values[d.id] != null) changes.push({ rowId: row.id, columnId: d.id, value: null });
+        void commit(changes);
+      }
     }
     if (mv === 'down') move(1, 0);
     else if (mv === 'up') move(-1, 0);
@@ -141,7 +181,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
       for (let c = bounds.c1; c <= bounds.c2; c++) {
         const row = rows[r];
         const col = cols[c];
-        if (row && col && !isEmpty(row.values[col.id])) changes.push({ rowId: row.id, columnId: col.id, value: null });
+        if (row && col && !isComputed(col) && !isEmpty(row.values[col.id])) changes.push({ rowId: row.id, columnId: col.id, value: null });
       }
     if (changes.length) void commit(changes, { partial: true, source: 'edit' });
   };
@@ -169,6 +209,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
       for (let c = bounds.c1; c <= cEnd; c++) {
         const v = single ? grid[0][0] : grid[r - bounds.r1]?.[c - bounds.c1];
         if (v === undefined) continue;
+        if (isComputed(cols[c])) continue;
         changes.push({ rowId: rows[r].id, columnId: cols[c].id, value: v === '' ? null : v });
       }
     const skipped = single ? 0 : grid.length - (rEnd - bounds.r1 + 1);
@@ -246,7 +287,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
     if (!ctx) return;
     ctx.font = `13px ${getComputedStyle(document.body).fontFamily}`;
     let w = ctx.measureText(col.name).width + 64;
-    rows.forEach((r) => { w = Math.max(w, ctx.measureText(displayValue(col, r.values[col.id] ?? null)).width + (col.dataType === 'select' || col.dataType === 'multi_select' ? 40 : 24)); });
+    rows.forEach((r) => { w = Math.max(w, col.dataType === 'image' ? 180 : ctx.measureText(displayValue(col, r.values[col.id] ?? null)).width + (col.dataType === 'select' || col.dataType === 'multi_select' ? 40 : 24)); });
     setPrefs((p) => ({ colWidths: { ...p.colWidths, [col.id]: Math.round(Math.min(600, Math.max(60, w))) } }));
   };
 
@@ -307,6 +348,34 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
   };
 
   /* ---------- status bar ---------- */
+  // ---- whole-column selection (click a header) with count / sum for the current filter
+  const [colSel, setColSel] = useState<string[]>([]);
+  const lastCol = useRef<string | null>(null);
+  const [stats, setStats] = useState<{ totalRows: number; columns: ColumnStat[] } | null>(null);
+  const pickColumn = (id: string, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
+    setSel(null);
+    setColSel((cur) => {
+      if (e.shiftKey && lastCol.current) {
+        const a = cols.findIndex((c) => c.id === lastCol.current), b = cols.findIndex((c) => c.id === id);
+        return cols.slice(Math.min(a, b), Math.max(a, b) + 1).map((c) => c.id);
+      }
+      if (e.ctrlKey || e.metaKey) return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      return cur.length === 1 && cur[0] === id ? [] : [id];
+    });
+    lastCol.current = id;
+  };
+  useEffect(() => { if (sel) setColSel([]); }, [sel]);
+  const sheetKey = view.detail?.sheet.id;
+  const statsKey = JSON.stringify([colSel, query.filters, query.search, view.total]);
+  useEffect(() => {
+    if (!colSel.length || !sheetKey) { setStats(null); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      rowsApi.columnStats(sheetKey, { columnIds: colSel, filters: query.filters, search: query.search || undefined }).then((r) => live && setStats(r)).catch(() => live && setStats(null));
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [statsKey, rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const status = useMemo(() => {
     if (!bounds) return null;
     const cells = (bounds.r2 - bounds.r1 + 1) * (bounds.c2 - bounds.c1 + 1);
@@ -325,6 +394,8 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
   }, [bounds, sel, rows, cols]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- render ---------- */
+  // colour alerts: the clock only runs while a visible column has one (once a minute, in the browser — no server load)
+  const nowMs = useMinuteTick(cols.some((c) => c.validation?.alert));
   const stickyCell = (ri: number, ci: number) => {
     const frow = ri < fr;
     const fcol = ci < fc;
@@ -348,16 +419,19 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                 const s = sortOf(c.id);
                 return (
                   <th key={c.id} data-col={ci} role="columnheader" aria-sort={s ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                    className={cn('group select-none text-left', ci === fc - 1 && 'freeze-col-edge')}
+                    className={cn('group select-none text-left', ci === fc - 1 && 'freeze-col-edge', colSel.includes(c.id) && 'colsel')}
                     style={{ position: 'sticky', top: 0, left: ci < fc ? lefts[ci] : undefined, zIndex: ci < fc ? 28 : 26 }}
                     onContextMenu={(e) => { e.preventDefault(); setMenu({ anchor: { x: e.clientX, y: e.clientY }, kind: 'header', r: 0, c: ci }); }}>
                     <div className="flex h-full items-center gap-1.5" style={{ padding: `0 ${8 * z}px` }}>
-                      <span className="shrink-0 opacity-60 [&>svg]:h-[1em] [&>svg]:w-[1em]">{TYPE_META[c.dataType].icon}</span>
-                      <button onClick={(e) => cycleSort(c, e.shiftKey)} title={`${c.name}${c.description ? ` — ${c.description}` : ''}\nคลิกเพื่อเรียง · Shift+คลิกเพื่อเรียงหลายคอลัมน์`}
+                      {isComputed(c) ? <span title="คอลัมน์สูตร" className="shrink-0 font-serif text-[1.05em] font-bold italic text-primary">ƒ</span> : <span className="shrink-0 opacity-60 [&>svg]:h-[1em] [&>svg]:w-[1em]">{TYPE_META[c.dataType].icon}</span>}
+                      <button onClick={(e) => pickColumn(c.id, e)} title={`${c.name}${c.description ? ` — ${c.description}` : ''}\nคลิกเพื่อเลือกคอลัมน์ (ดูจำนวนแถว/ผลรวม) · Ctrl+คลิก เลือกหลายคอลัมน์ · Shift+คลิก เลือกเป็นช่วง`}
                         className="min-w-0 flex-1 truncate text-left font-medium text-ink/85">
                         {c.name}{c.isRequired && <span className="ml-0.5 text-danger">*</span>}
                       </button>
-                      {s && <span className="shrink-0 text-primary" style={{ fontSize: '0.8em' }}>{s.dir === 'asc' ? '▲' : '▼'}{query.sorts.length > 1 ? s.i + 1 : ''}</span>}
+                      <button onClick={(e) => { e.stopPropagation(); cycleSort(c, e.shiftKey); }} aria-label={`เรียงตาม ${c.name}`} title="คลิกเพื่อเรียง · Shift+คลิกเพื่อเรียงหลายคอลัมน์"
+                        className={cn('shrink-0 rounded px-0.5 text-primary hover:bg-ink/10', !s && 'text-muted opacity-0 group-hover:opacity-100')} style={{ fontSize: '0.8em' }}>
+                        {s ? <>{s.dir === 'asc' ? '▲' : '▼'}{query.sorts.length > 1 ? s.i + 1 : ''}</> : <ArrowDownUp className="h-[1em] w-[1em]" />}
+                      </button>
                       <button onClick={(e) => onFilterColumn(c.id, e.currentTarget.closest('th') as HTMLElement)} aria-label={`ตัวกรอง ${c.name}`}
                         className={cn('grid shrink-0 place-items-center rounded p-0.5', filtered(c.id) ? 'bg-primary text-white' : 'opacity-0 hover:bg-ink/10 group-hover:opacity-100')}>
                         {filtered(c.id) ? <Filter className="h-[0.9em] w-[0.9em]" /> : <ChevronDown className="h-[1em] w-[1em]" />}
@@ -378,10 +452,21 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                     style={{ position: 'sticky', left: 0, top: frow ? tops[ri] : undefined, zIndex: frow ? 16 : 11, fontSize: '0.85em' }}
                     onClick={() => cols.length && setSel({ a: { r: ri, c: 0 }, f: { r: ri, c: cols.length - 1 } })}
                     onContextMenu={(e) => { e.preventDefault(); setMenu({ anchor: { x: e.clientX, y: e.clientY }, kind: 'row', r: ri, c: 0 }); }}>
-                    <span className="group-hover/rn:hidden">{row.order}</span>
-                    <button onClick={(e) => { e.stopPropagation(); onOpenRow(row); }} className="hidden w-full place-items-center text-primary group-hover/rn:grid" title="เปิดแถวในฟอร์ม" aria-label="เปิดแถวในฟอร์ม">
-                      <Maximize2 className="h-[1.05em] w-[1.05em]" />
-                    </button>
+                    <span className="flex w-full items-center justify-center gap-1 group-hover/rn:hidden">
+                      <span>{row.order}</span>
+                      {onViewRow && <button onClick={(e) => { e.stopPropagation(); onViewRow(row); }} className="text-muted" title="ดูข้อมูลทั้งแถว" aria-label="ดูข้อมูลทั้งแถว"><Eye className="h-[1.05em] w-[1.05em]" /></button>}
+                    </span>
+                    <span className="hidden w-full items-center justify-center gap-1.5 group-hover/rn:flex">
+                      {onViewRow && <button onClick={(e) => { e.stopPropagation(); onViewRow(row); }} className="text-primary" title="ดูข้อมูลทั้งแถว" aria-label="ดูข้อมูลทั้งแถว"><Eye className="h-[1.05em] w-[1.05em]" /></button>}
+                      <button onClick={(e) => { e.stopPropagation(); onOpenRow(row); }} className="text-primary" title="เปิดแถวในฟอร์ม" aria-label="เปิดแถวในฟอร์ม">
+                        <Maximize2 className="h-[1.05em] w-[1.05em]" />
+                      </button>
+                      {canWrite && (
+                        <button onClick={(e) => { e.stopPropagation(); onDeleteRows([row.id]); }} className="text-danger" title="ลบแถวนี้" aria-label="ลบแถวนี้">
+                          <Trash2 className="h-[1.05em] w-[1.05em]" />
+                        </button>
+                      )}
+                    </span>
                     <span className="row-resizer" onMouseDown={(e) => startRowResize(e, row)} />
                   </td>
                   {cols.map((col, ci) => {
@@ -390,9 +475,9 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                     const isEdit = editing?.r === ri && editing?.c === ci;
                     return (
                       <td key={col.id} data-cell={`${ri}:${ci}`} role="gridcell" aria-selected={inSel(ri, ci)}
-                        className={cn(inSel(ri, ci) && 'sel', isFocus && 'focus', col.isRequired && isEmpty(v) && 'req-empty', ci === fc - 1 && 'freeze-col-edge',
+                        className={cn(inSel(ri, ci) && 'sel', isFocus && 'focus', colSel.includes(col.id) && 'colsel', col.isRequired && isEmpty(v) && 'req-empty', ci === fc - 1 && 'freeze-col-edge',
                           ri === fr - 1 && 'freeze-row-edge', flash.has(`${row.id}:${col.id}`) && 'cell-flash', col.dataType === 'boolean' && 'text-center')}
-                        style={stickyCell(ri, ci)}
+                        style={cellStyle(stickyCell(ri, ci), col, row.values, nowMs)}
                         title={col.isRequired && isEmpty(v) ? `"${col.name}" จำเป็นต้องกรอก` : undefined}
                         onMouseDown={(e) => {
                           if (e.button !== 0 || isEdit) return;
@@ -408,10 +493,14 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
                           setMenu({ anchor: { x: e.clientX, y: e.clientY }, kind: 'cell', r: ri, c: ci });
                         }}>
                         <div className="flex h-full items-center overflow-hidden" style={{ padding: `0 ${8 * z}px` }}>
-                          <div className="min-w-0 flex-1 truncate"><CellDisplay col={col} value={v} /></div>
+                          <div className={col.dataType === 'image' ? 'h-full min-w-0 flex-1 overflow-hidden' : 'min-w-0 flex-1 truncate'}><CellDisplay col={col} value={v} /></div>
+                          {col.dataType === 'image' && canWrite && !isComputed(col) && (
+                            <button type="button" title="ถ่ายรูป" aria-label="ถ่ายรูป" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); captureInto(row, col); }}
+                              className="ml-1 grid shrink-0 place-items-center rounded-md p-1 text-primary hover:bg-primary/10"><Camera className="h-[1.1em] w-[1.1em]" /></button>
+                          )}
                         </div>
                         {isEdit && (
-                          <CellEditor col={col} value={v} initial={editing?.initial}
+                          <CellEditor col={col} value={v} rowValues={row.values} initial={editing?.initial}
                             anchor={tableRef.current?.querySelector<HTMLElement>(`[data-cell="${ri}:${ci}"]`) ?? null}
                             onCommit={finishEdit} onCancel={() => { setEditing(null); requestAnimationFrame(focusGrid); }} />
                         )}
@@ -431,7 +520,29 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
       </div>
 
       <div className="flex h-9 shrink-0 items-center gap-4 overflow-x-auto border-t border-line px-3 text-xs text-muted">
-        {status ? (
+        {colSel.length > 0 ? (
+          <>
+            <button onClick={() => setColSel([])} className="shrink-0 rounded-lg bg-primary/10 px-2 py-0.5 font-medium text-primary hover:bg-primary/20">เลือก {colSel.length} คอลัมน์ ✕</button>
+            {stats ? stats.columns.map((s) => {
+              const col = cols.find((c) => c.id === s.columnId);
+              if (!col) return null;
+              const dec = col.validation?.decimals ?? (col.dataType === 'float' ? 2 : 0);
+              return (
+                <span key={s.columnId} className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line px-2 py-0.5">
+                  <b className="text-ink/85">{col.name}</b>
+                  <span>แถว {stats.totalRows.toLocaleString()}</span>
+                  <span>มีข้อมูล {s.filled.toLocaleString()}</span>
+                  {stats.totalRows - s.filled > 0 && <span>ว่าง {(stats.totalRows - s.filled).toLocaleString()}</span>}
+                  {s.sum !== null && <b className="text-primary">ผลรวม {fmtNumber(s.sum, dec)}</b>}
+                  {s.avg !== null && <span>เฉลี่ย {fmtNumber(s.avg, Math.max(dec, 2))}</span>}
+                  {s.min !== null && <span>ต่ำสุด {fmtNumber(Number(s.min), dec)}</span>}
+                  {s.max !== null && <span>สูงสุด {fmtNumber(Number(s.max), dec)}</span>}
+                  {s.trueCount !== null && <span>ใช่ {s.trueCount.toLocaleString()}</span>}
+                </span>
+              );
+            }) : <span>กำลังคำนวณ…</span>}
+          </>
+        ) : status ? (
           <>
             <span className="whitespace-nowrap font-medium text-ink/80">{status.fcol?.name} · แถว #{status.focus?.order}</span>
             {status.meta && <span className="whitespace-nowrap">แก้ไขโดย {users[status.meta.by]?.name ?? 'ผู้ใช้'} · {relTime(status.meta.at)}</span>}
@@ -448,7 +559,7 @@ export function SpreadsheetGrid({ view, canWrite, canManage, onOpenRow, onCellHi
             )}
           </>
         ) : (
-          <span>คลิกเซลล์เพื่อเลือก · ดับเบิลคลิกหรือ Enter เพื่อแก้ไข · Ctrl+Z ย้อนกลับ · Ctrl+ล้อเมาส์ เพื่อซูม</span>
+          <span>คลิกเซลล์เพื่อเลือก · คลิกชื่อคอลัมน์เพื่อดูจำนวนแถว/ผลรวม (Ctrl+คลิก เลือกหลายคอลัมน์) · ดับเบิลคลิกหรือ Enter เพื่อแก้ไข · Ctrl+Z ย้อนกลับ</span>
         )}
       </div>
 

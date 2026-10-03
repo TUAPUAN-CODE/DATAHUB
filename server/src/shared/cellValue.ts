@@ -13,6 +13,8 @@ export const DATA_TYPES = [
   'multi_select',
   'url',
   'email',
+  'image',
+  'doc_number',
 ] as const;
 export type DataType = (typeof DATA_TYPES)[number];
 
@@ -27,11 +29,21 @@ export interface Validation {
   max?: number | null;
   decimals?: number | null;
   maxLength?: number | null;
+  /** numbers: at most this many digits (sign, decimal point and thousands separators are not counted) — applies to typing, scanning and import alike */
+  maxDigits?: number | null;
   pattern?: string | null;
   patternMessage?: string | null;
   minDate?: string | null;
   maxDate?: string | null;
   maxSelections?: number | null;
+  /** Show the "— ไม่ระบุ —" choice for select columns (default true; never shown for required columns) */
+  allowEmpty?: boolean | null;
+  /** Options come from a column of another sheet (relationship) instead of a fixed list */
+  lookup?: { sheetId: string; columnId: string; parent?: { localColumnId: string; foreignColumnId: string } | null } | null;
+  /** computed column: expression with columns referenced by id, e.g. DATEDIFF("hour", [#id], [#id]) */
+  formula?: { expr: string } | null;
+  /** auto-numbered document id (type doc_number) */
+  docNumber?: { template: string; prefixes?: string[] | null; prefixLookup?: { sheetId: string; columnId: string } | null; dateColumnId?: string | null } | null;
 }
 
 export interface ColumnDef {
@@ -182,6 +194,7 @@ export function normalizeValue(col: ColumnDef, raw: unknown, opts: { skipRequire
   switch (col.data_type) {
     case 'varchar':
     case 'text':
+    case 'doc_number':
     case 'url':
     case 'email': {
       let s = Array.isArray(raw) ? raw.join(', ') : String(raw);
@@ -214,6 +227,10 @@ export function normalizeValue(col: ColumnDef, raw: unknown, opts: { skipRequire
     case 'float': {
       let n = parseNumber(raw);
       if (n === null) return fail(`"${name}" ต้องเป็นตัวเลข`);
+      if (v.maxDigits) {
+        const digits = (typeof raw === 'string' ? raw : String(n)).replace(/[^0-9]/g, '').length;
+        if (digits > v.maxDigits) return fail(`"${name}" ต้องไม่เกิน ${v.maxDigits} หลัก`);
+      }
       if (col.data_type === 'int') {
         if (!Number.isInteger(n)) return fail(`"${name}" ต้องเป็นจำนวนเต็ม`);
         if (!Number.isSafeInteger(n)) return fail(`"${name}" มีค่าเกินขอบเขตที่รองรับ`);
@@ -272,6 +289,23 @@ export function normalizeValue(col: ColumnDef, raw: unknown, opts: { skipRequire
         return fail(`"${name}" เลือกได้ไม่เกิน ${v.maxSelections} รายการ`);
       return okv(out);
     }
+
+    case 'image': {
+      // Uploaded pictures are stored as a list of URLs (/uploads/<file>); the files themselves live in UPLOAD_DIR
+      const parts = (Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\n;,]/)).map((p) => p.trim()).filter(Boolean);
+      const out: string[] = [];
+      for (const p of parts) {
+        if (!/^(\/uploads\/[\w.-]+|https?:\/\/\S+)$/i.test(p) || p.length > 500) return fail(`"${name}" มีรูปภาพที่ไม่ถูกต้อง`);
+        if (!out.includes(p)) out.push(p);
+      }
+      if (!out.length) {
+        if (col.is_required && !opts.skipRequired) return fail(`"${name}" จำเป็นต้องมีรูปภาพอย่างน้อย 1 รูป`);
+        return okv(null);
+      }
+      const max = v.maxSelections ?? 200;
+      if (out.length > max) return fail(`"${name}" ใส่รูปได้ไม่เกิน ${max} รูป`);
+      return okv(out);
+    }
   }
   return fail(`ไม่รู้จักชนิดข้อมูล ${col.data_type}`);
 }
@@ -303,6 +337,7 @@ export function toStorage(type: DataType, value: CellValue): Stored {
       s.value_bool = !!value;
       break;
     case 'multi_select':
+    case 'image':
       s.value_json = JSON.stringify(value);
       break;
     default:
@@ -327,6 +362,7 @@ export function fromStorage(type: DataType, row: any): CellValue {
     case 'boolean':
       return row.value_bool === null || row.value_bool === undefined ? null : !!row.value_bool;
     case 'multi_select':
+    case 'image':
       return row.value_json ? safeJson<string[] | null>(row.value_json, null) : null;
     default:
       return row.value_text ?? null;

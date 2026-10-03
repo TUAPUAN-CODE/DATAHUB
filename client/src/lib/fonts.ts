@@ -57,6 +57,7 @@ export function fontUrl(family: string) {
 
 /** Loads the main UI font (replaces the previous one) */
 export function loadMainFont(family: string) {
+  if (family.trim().toLowerCase() === 'prompt') { document.getElementById('gf-main')?.remove(); return; } // bundled with the app (no request to Google)
   let link = document.getElementById('gf-main') as HTMLLinkElement | null;
   if (!link) {
     link = document.createElement('link');

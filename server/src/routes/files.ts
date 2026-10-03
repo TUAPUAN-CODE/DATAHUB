@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { Router } from 'express';
+import { isBasicRole } from '../middleware/auth';
 import { z } from 'zod';
 import { q, q1, T, withTx, Tx } from '../config/db';
 import { audit } from '../shared/audit';
@@ -8,6 +9,8 @@ import { mapFile, mapSheet } from '../shared/mappers';
 import { LV, PermCtx, requireFile, requireFolder } from '../shared/permissions';
 import { sheetInput } from '../shared/schemas';
 import { assertUniqueNames, insertColumn } from '../services/structure';
+import { parseTemplates, remapTemplates, sheetsOfFile } from '../services/pdfTemplates';
+import { runAfterSheetCopied } from '../services/hooks';
 import { FILES_SQL, favoriteSet } from './folders';
 
 const router = Router();
@@ -97,7 +100,7 @@ router.post(
   '/files',
   ah(async (req, res) => {
     const u = req.user!;
-    if (u.role === 'user') throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่สร้างไฟล์ได้');
+    if (isBasicRole(u.role)) throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่สร้างไฟล์ได้');
     const body = parse(createSchema, req.body);
     await requireFolder(u, body.folderId, LV.write);
     assertUniqueNames(body.sheets.map((s) => s.name), 'ชีต');
@@ -189,6 +192,7 @@ async function copySheet(tx: Tx, oldSheetId: string, newFileId: string, order: n
     { old: T.uuid(oldSheetId), new: T.uuid(newSheetId), u: T.uuid(userId) },
     tx,
   );
+  await runAfterSheetCopied({ tx, oldSheetId, newSheetId, columnMap: colMap as { old_id: string; new_id: string }[] });
   if (includeData) {
     await q(
       `DECLARE @rm TABLE (old_id UNIQUEIDENTIFIER, new_id UNIQUEIDENTIFIER);
@@ -212,7 +216,7 @@ router.post(
   ah(async (req, res) => {
     const id = pid(req);
     const u = req.user!;
-    if (u.role === 'user') throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่ทำสำเนาไฟล์ได้');
+    if (isBasicRole(u.role)) throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่ทำสำเนาไฟล์ได้');
     const { file } = await requireFile(u, id, LV.read);
     const body = parse(z.object({ name: z.string().trim().min(1).max(300).optional(), folderId: zId.optional(), includeData: z.boolean().default(false) }), req.body);
     const folderId = body.folderId ?? file.folder_id;
@@ -226,6 +230,12 @@ router.post(
       );
       const sheets = await q(`SELECT sheet_id FROM Sheets WHERE file_id = @f AND is_deleted = 0 ORDER BY sort_order`, { f: T.uuid(id) }, tx);
       for (const [i, s] of sheets.entries()) await copySheet(tx, s.sheet_id, f!.file_id, i, u.id, body.includeData);
+      // PDF layouts travel with the file
+      const tpls = parseTemplates(file.pdf_templates);
+      if (tpls.length) {
+        const mapped = remapTemplates(tpls, await sheetsOfFile(id, tx), await sheetsOfFile(f!.file_id, tx), false);
+        await q(`UPDATE Files SET pdf_templates = @t WHERE file_id = @f`, { t: T.text(JSON.stringify(mapped)), f: T.uuid(f!.file_id) }, tx);
+      }
       await audit({ userId: u.id, action: 'file_duplicate', entityType: 'file', entityId: f!.file_id, fileId: f!.file_id,
         newValue: { sourceFileId: id, includeData: body.includeData } }, req, tx);
       return f!.file_id as string;

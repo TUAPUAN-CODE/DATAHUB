@@ -55,6 +55,7 @@ export const mapSheet = (r: any) => ({
   name: r.sheet_name,
   order: r.sort_order,
   tabColor: r.tab_color ?? null,
+  isUnion: !!r.union_config,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });

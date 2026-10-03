@@ -2,8 +2,11 @@ import { KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from '
 import { Check, Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { fmtDate, fmtDateTime, fmtNumber, fromLocalInput, optionLabel, toLocalInput } from '@/lib/format';
-import type { CellValue, Column } from '@/types';
+import { useLookupOptions } from '@/lib/lookup';
+import type { CellValue, Column, SelectOption } from '@/types';
 import { Popover } from '../ui/Popover';
+import { DocNumberCellEditor } from './DocNumberCell';
+import { ImageCellEditor, ImageThumbs, toUrls } from './ImageCell';
 
 export function Chip({ label, color, size = 'md' }: { label: string; color?: string | null; size?: 'sm' | 'md' }) {
   const c = color ?? '#64748B';
@@ -39,6 +42,8 @@ export function CellDisplay({ col, value }: { col: Column; value: CellValue | un
           {(value as string[]).map((v) => <Chip key={v} size="sm" label={optionLabel(col, v)} color={col.options.find((o) => o.value === v)?.color} />)}
         </span>
       );
+    case 'image':
+      return <ImageThumbs urls={toUrls(value)} />;
     case 'url':
       return <a href={String(value)} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} className="text-primary underline-offset-2 hover:underline">{String(value).replace(/^https?:\/\//, '')}</a>;
     case 'email':
@@ -56,8 +61,8 @@ const rawText = (col: Column, v: CellValue | undefined) => {
 };
 
 /** Inline / popover editor for one cell */
-export function CellEditor({ col, value, initial, anchor, onCommit, onCancel }: {
-  col: Column; value: CellValue | undefined; initial?: string; anchor: HTMLElement | null;
+export function CellEditor({ col, value, initial, anchor, onCommit, onCancel, rowValues }: {
+  col: Column; value: CellValue | undefined; initial?: string; anchor: HTMLElement | null; rowValues?: Record<string, CellValue | undefined>;
   onCommit: (v: CellValue, move: Move) => void; onCancel: () => void;
 }) {
   const done = useRef(false);
@@ -77,7 +82,9 @@ export function CellEditor({ col, value, initial, anchor, onCommit, onCancel }: 
     else if (e.key === 'Tab') { e.preventDefault(); text === rawText(col, value) ? cancel() : finish(conv(text), e.shiftKey ? 'left' : 'right'); }
   };
 
-  if (col.dataType === 'select' || col.dataType === 'multi_select') return <OptionEditor col={col} value={value} anchor={anchor} onCommit={finish} onCancel={cancel} />;
+  if (col.dataType === 'doc_number') return <DocNumberCellEditor col={col} value={value} anchor={anchor} rowValues={rowValues ?? {}} onCommit={finish} onCancel={cancel} />;
+  if (col.dataType === 'image') return <ImageCellEditor col={col} value={value} anchor={anchor} onCommit={finish} onCancel={cancel} />;
+  if (col.dataType === 'select' || col.dataType === 'multi_select') return <LookupAwareOptionEditor col={col} value={value} anchor={anchor} rowValues={rowValues ?? {}} onCommit={finish} onCancel={cancel} />;
 
   if (col.dataType === 'text')
     return (
@@ -98,12 +105,21 @@ export function CellEditor({ col, value, initial, anchor, onCommit, onCancel }: 
   );
 }
 
-function OptionEditor({ col, value, anchor, onCommit, onCancel }: { col: Column; value: CellValue | undefined; anchor: HTMLElement | null; onCommit: (v: CellValue, m: Move) => void; onCancel: () => void }) {
+/** Fixed options, or the live options of a relationship column (filtered by the row's parent value) */
+function LookupAwareOptionEditor(p: { col: Column; value: CellValue | undefined; anchor: HTMLElement | null; rowValues: Record<string, CellValue | undefined>; onCommit: (v: CellValue, m: Move) => void; onCancel: () => void }) {
+  const lk = useLookupOptions(p.col, p.rowValues);
+  const options: SelectOption[] = lk.isLookup ? (lk.options ?? []).map((v) => ({ value: v, label: v })) : p.col.options;
+  const hint = lk.isLookup ? (lk.loading ? 'กำลังโหลดตัวเลือก…' : lk.needsParent ? 'กรุณาเลือกคอลัมน์ที่เชื่อมโยงก่อน' : !options.length ? 'ไม่มีตัวเลือกในตารางต้นทาง' : null) : null;
+  return <OptionEditor col={p.col} options={options} hint={hint} value={p.value} anchor={p.anchor} onCommit={p.onCommit} onCancel={p.onCancel} />;
+}
+
+function OptionEditor({ col, options, hint, value, anchor, onCommit, onCancel }: { col: Column; options: SelectOption[]; hint?: string | null; value: CellValue | undefined; anchor: HTMLElement | null; onCommit: (v: CellValue, m: Move) => void; onCancel: () => void }) {
   const multi = col.dataType === 'multi_select';
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<string[]>(multi ? ((value as string[]) ?? []) : value ? [String(value)] : []);
   const [hi, setHi] = useState(0);
-  const list = useMemo(() => col.options.filter((o) => !q || o.label.toLowerCase().includes(q.toLowerCase())), [col.options, q]);
+  const list = useMemo(() => options.filter((o) => !q || o.label.toLowerCase().includes(q.toLowerCase())), [options, q]);
+  const canClear = !col.isRequired && col.validation?.allowEmpty !== false;
   useEffect(() => setHi(0), [q]);
   const pick = (v: string) => {
     if (!multi) return onCommit(v, 'down');
@@ -140,10 +156,10 @@ function OptionEditor({ col, value, anchor, onCommit, onCancel }: { col: Column;
             <Chip label={o.label} color={o.color} />
           </button>
         ))}
-        {!list.length && <p className="px-3 py-4 text-center text-sm text-muted">ไม่พบตัวเลือก</p>}
+        {!list.length && <p className="px-3 py-4 text-center text-sm text-muted">{hint ?? 'ไม่พบตัวเลือก'}</p>}
       </div>
       <div className="flex items-center justify-between border-t border-line px-3 py-2">
-        <button type="button" onClick={() => onCommit(null, null)} className="text-xs text-muted hover:text-danger">ล้างค่า</button>
+        {canClear ? <button type="button" onClick={() => onCommit(null, null)} className="text-xs text-muted hover:text-danger">ล้างค่า</button> : <span />}
         {multi && <button type="button" onClick={close} className="rounded-lg bg-primary px-3 py-1 text-xs font-medium text-white">เสร็จ</button>}
       </div>
     </Popover>

@@ -1,0 +1,304 @@
+{
+  "kind": "datasheet-pdf-template",
+  "version": 1,
+  "template": {
+    "id": "4711125c-10e1-4c9f-9309-215e4c7f620e",
+    "name": "รายงาน RM บรรจุ (ฟอร์ม DBS)",
+    "mode": "table",
+    "page": {
+      "size": "A4",
+      "orientation": "landscape",
+      "margins": {
+        "top": 12,
+        "right": 8,
+        "bottom": 14,
+        "left": 8
+      }
+    },
+    "base": {
+      "font": "Sarabun",
+      "fontSize": 9,
+      "color": "#111827"
+    },
+    "header": {
+      "enabled": false,
+      "blocks": []
+    },
+    "footer": {
+      "enabled": true,
+      "blocks": [
+        {
+          "id": "ae15d6d5-8650-42aa-b766-0c93b2c8df11",
+          "type": "text",
+          "text": "{{file}} · หน้า {{page}} / {{pages}}",
+          "style": {
+            "align": "right",
+            "fontSize": 8,
+            "color": "#6B7280"
+          },
+          "marginBottom": 2
+        }
+      ]
+    },
+    "prompts": [
+      {
+        "key": "date",
+        "label": "Date",
+        "type": "date",
+        "default": "@today",
+        "required": true
+      },
+      {
+        "key": "line",
+        "label": "Line",
+        "type": "text",
+        "default": "",
+        "required": true
+      },
+      {
+        "key": "plant",
+        "label": "Plant",
+        "type": "text",
+        "default": ""
+      }
+    ],
+    "settings": {
+      "shift": {
+        "dayStart": "06:00",
+        "nightStart": "18:00",
+        "dayLabel": "DS",
+        "nightLabel": "NS"
+      }
+    },
+    "askOnExport": true,
+    "blocks": [
+      {
+        "id": "b26e8eab-500c-4f99-9dd9-b7e5f579ec85",
+        "type": "text",
+        "text": "รายงานตรวจสอบวัตถุดิบก่อนบรรจุ (Raw Material Record)",
+        "style": {
+          "fontSize": 15,
+          "bold": true,
+          "color": "#1552F0",
+          "align": "left"
+        },
+        "marginBottom": 2
+      },
+      {
+        "id": "5a09c0b3-04fd-4c50-8bb8-1eaab0813793",
+        "type": "infoRow",
+        "underline": true,
+        "gapMm": 6,
+        "lineColor": "#9CA3AF",
+        "marginBottom": 3,
+        "items": [
+          {
+            "id": "021ef92f-a4ed-4ca0-bb0e-5a73b2aed64d",
+            "label": "Date:",
+            "value": "{{date}}",
+            "widthPct": 25
+          },
+          {
+            "id": "9b741b20-290c-45bd-8f35-d692f09af4cb",
+            "label": "Shift:",
+            "value": "{{shift}}",
+            "widthPct": 20
+          },
+          {
+            "id": "0b2b1f45-9707-4aeb-b103-71e8265401ec",
+            "label": "Line:",
+            "value": "{{line}}",
+            "widthPct": 25
+          },
+          {
+            "id": "8a9a208c-04b6-4cef-81cb-79172f33808e",
+            "label": "Plant:",
+            "value": "{{plant}}",
+            "widthPct": 25
+          }
+        ],
+        "labelStyle": {
+          "fontSize": 9,
+          "bold": true
+        },
+        "valueStyle": {
+          "fontSize": 10
+        }
+      },
+      {
+        "id": "a5467c5d-b3d8-4267-999a-690a55db3be1",
+        "type": "table",
+        "sheetId": "",
+        "sheetName": "RM Report",
+        "columns": [
+          {
+            "columnId": "",
+            "columnName": "รายการ",
+            "widthMm": 13
+          },
+          {
+            "columnId": "",
+            "columnName": "แผนการผลิต",
+            "widthMm": 20
+          },
+          {
+            "columnId": "",
+            "columnName": "รายชื่อวัตถุดิบ",
+            "widthMm": 28
+          },
+          {
+            "columnId": "",
+            "columnName": "Batch",
+            "widthMm": 13
+          },
+          {
+            "columnId": "",
+            "columnName": "ชุดที่",
+            "widthMm": 8
+          },
+          {
+            "columnId": "",
+            "columnName": "เวลาเตรียมเสร็จ (A)",
+            "widthMm": 18
+          },
+          {
+            "columnId": "",
+            "columnName": "น้ำหนักวัตถุดิบ",
+            "widthMm": 14
+          },
+          {
+            "columnId": "",
+            "columnName": "เข้าห้องเย็น 1",
+            "widthMm": 18
+          },
+          {
+            "columnId": "",
+            "columnName": "ออกห้องเย็น 1",
+            "widthMm": 18
+          },
+          {
+            "columnId": "",
+            "columnName": "เข้าห้องเย็น 2",
+            "widthMm": 18
+          },
+          {
+            "columnId": "",
+            "columnName": "ออกห้องเย็น 2",
+            "widthMm": 18
+          },
+          {
+            "columnId": "",
+            "columnName": "บรรจุเสร็จ (F)",
+            "widthMm": 18
+          },
+          {
+            "columnId": "",
+            "columnName": "DBS 1",
+            "widthMm": 13
+          },
+          {
+            "columnId": "",
+            "columnName": "DBS 2",
+            "widthMm": 13
+          },
+          {
+            "columnId": "",
+            "columnName": "DBS 3",
+            "widthMm": 13
+          },
+          {
+            "columnId": "",
+            "columnName": "DBS 4",
+            "widthMm": 13
+          },
+          {
+            "columnId": "",
+            "columnName": "หมายเหตุ",
+            "widthMm": 18
+          }
+        ],
+        "rowsPerPage": null,
+        "limit": null,
+        "widthPct": 100,
+        "align": "left",
+        "header": {
+          "bg": "#E5E7EB",
+          "color": "#111827",
+          "bold": true,
+          "fontSize": 7,
+          "align": "center"
+        },
+        "body": {
+          "fontSize": 7,
+          "color": "#111827",
+          "zebra": null,
+          "lineHeight": 1.1
+        },
+        "border": {
+          "color": "#6B7280",
+          "width": 0.4
+        },
+        "padding": 1.8,
+        "showRowNumber": false,
+        "rowNumberHeader": "#",
+        "repeatHeader": true,
+        "useCurrentFilters": true,
+        "imageSizeMm": 18,
+        "maxImagesPerCell": 3,
+        "summary": [],
+        "summaryLabel": "รวม",
+        "marginBottom": 4
+      },
+      {
+        "id": "b4713452-1bee-45ab-82d3-f5d4c0be292a",
+        "type": "signature",
+        "perRow": 3,
+        "boxHeightMm": 14,
+        "gapMm": 10,
+        "lineColor": "#111827",
+        "lineWidth": 0.6,
+        "marginTop": 6,
+        "marginBottom": 2,
+        "slots": [
+          {
+            "id": "9207034a-15d7-497e-9446-941b57038dae",
+            "label": "ผู้บันทึก",
+            "sublabel": "Recorded by",
+            "askAtExport": true,
+            "showDate": true
+          },
+          {
+            "id": "d313c821-96ff-455a-a7d4-afdec51ad059",
+            "label": "ผู้ตรวจสอบ",
+            "sublabel": "Reviewed by",
+            "askAtExport": true,
+            "showDate": true
+          },
+          {
+            "id": "f1497f4f-761e-49c5-ac2c-1556bc990871",
+            "label": "QC Manager",
+            "askAtExport": true,
+            "showDate": true
+          }
+        ],
+        "labelStyle": {
+          "fontSize": 9,
+          "align": "center"
+        },
+        "nameStyle": {
+          "fontSize": 10,
+          "align": "center"
+        }
+      }
+    ],
+    "watermark": {
+      "enabled": false,
+      "text": "ลับ",
+      "color": "#9CA3AF",
+      "opacity": 0.15,
+      "size": 90,
+      "angle": -35
+    },
+    "lockEditing": false
+  }
+}

@@ -1,6 +1,7 @@
 import { idList, jsonParam, q, q1, T } from '../config/db';
 import { DataType, fromStorage } from '../shared/cellValue';
 import { badRequest, clamp, likeEscape, notFound } from '../shared/http';
+import { BIG_SHEET_ROWS, cachedTotal, rememberTotal, sheetRowCount } from './rowCount';
 
 export type FilterOp =
   | 'contains'
@@ -69,6 +70,7 @@ export function valueExpr(t: DataType, a: string) {
     case 'boolean':
       return `${a}.value_bool`;
     case 'multi_select':
+    case 'image':
       return `${a}.value_json`;
     default:
       return `${a}.value_text`;
@@ -81,7 +83,7 @@ function keyExpr(t: DataType, a: string) {
 }
 
 /** Text representation used for LIKE searches */
-function textExpr(t: DataType, a: string) {
+export function textExpr(t: DataType, a: string) {
   switch (t) {
     case 'int':
       return `CONVERT(NVARCHAR(40), ${a}.value_int)`;
@@ -93,6 +95,7 @@ function textExpr(t: DataType, a: string) {
     case 'boolean':
       return `CASE ${a}.value_bool WHEN 1 THEN N'true' WHEN 0 THEN N'false' END`;
     case 'multi_select':
+    case 'image':
       return `${a}.value_json`;
     default:
       return `${a}.value_text`;
@@ -324,7 +327,17 @@ export async function queryRows(sheetId: string, cols: any[], opts: RowQuery) {
 
   const pageSize = clamp(Math.trunc(opts.pageSize ?? 100), 1, 1000);
   const page = Math.max(1, Math.trunc(opts.page ?? 1));
-  const count = await q1(`SELECT COUNT(*) AS total FROM Rows r WHERE ${where}`, p.values);
+  // free-text search reads every cell of the sheet: refuse it on a huge sheet unless a column filter narrows the rows first
+  if (opts.search?.trim() && !(opts.filters ?? []).some((f) => f && (f.op || f.values?.length)) && (await sheetRowCount(sheetId)) > BIG_SHEET_ROWS) {
+    throw badRequest(`ชีตนี้มีข้อมูลมาก (เกิน ${BIG_SHEET_ROWS.toLocaleString()} แถว) กรุณากรองด้วยคอลัมน์ เช่น วันที่ ก่อนค้นหาข้อความ`);
+  }
+  const countKey = JSON.stringify([opts.filters ?? [], opts.search ?? '']);
+  let total = cachedTotal(sheetId, countKey);
+  if (total === null) {
+    const count = await q1(`SELECT COUNT_BIG(*) AS total FROM Rows r WHERE ${where}`, p.values);
+    total = Number(count?.total ?? 0);
+    rememberTotal(sheetId, countKey, total);
+  }
   const records = await q(
     `SELECT r.row_id, r.row_order, r.created_by, r.created_at, r.updated_by, r.updated_at
      FROM Rows r ${joins.join(' ')}
@@ -334,7 +347,7 @@ export async function queryRows(sheetId: string, cols: any[], opts: RowQuery) {
     p.values,
   );
   const { rows, userIds } = await hydrateRows(records, cols);
-  return { rows, total: Number(count?.total ?? 0), page, pageSize, users: await userNames(userIds) };
+  return { rows, total, page, pageSize, users: await userNames(userIds) };
 }
 
 export async function distinctValues(

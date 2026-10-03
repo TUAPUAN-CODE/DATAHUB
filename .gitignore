@@ -4,3 +4,7 @@ dist/
 uploads/
 *.log
 .DS_Store
+
+# build/tool artifacts
+*.whl
+server/archive/

@@ -1,37 +1,15 @@
-import { ReactNode, useState } from 'react';
+import { isBasicRole } from '@/types';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, FolderOpen, History, Home, KeyRound, LogOut, Settings, Star, Trash2, Users, X } from 'lucide-react';
+import { Cpu, FolderOpen, GitFork, History, Home, KeyRound, LayoutDashboard, LogOut, Settings, Trash2, Users, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { useUi } from '@/store/ui';
-import { FolderTree } from './FolderTree';
 
-function Section({ title, icon, children, storageKey }: { title: string; icon: ReactNode; children: ReactNode; storageKey: string }) {
-  const [open, setOpen] = useState(() => localStorage.getItem(storageKey) !== '0');
-  return (
-    <div className="mt-5 px-3">
-      <button onClick={() => { setOpen(!open); localStorage.setItem(storageKey, open ? '0' : '1'); }}
-        className="mb-1.5 flex w-full items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-wider opacity-70 hover:opacity-100">
-        {icon}<span className="flex-1 text-left">{title}</span>
-        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !open && '-rotate-90')} />
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-            {children}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarBody({ onNavigate, scope }: { onNavigate?: () => void; scope: string }) {
   const user = useAuth((s) => s.user)!;
   const logout = useAuth((s) => s.logout);
-  const favorites = useData((s) => s.favorites);
   const pending = useData((s) => s.pendingReviews);
   const { pathname } = useLocation();
   const inFiles = pathname.startsWith('/browse') || pathname.startsWith('/folders') || pathname.startsWith('/files');
@@ -40,9 +18,12 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
     { to: '/', label: 'หน้าแรก', icon: <Home className="h-[18px] w-[18px]" />, active: pathname === '/' },
     { to: '/browse', label: 'ไฟล์ทั้งหมด', icon: <FolderOpen className="h-[18px] w-[18px]" />, active: inFiles },
     { to: '/access-requests', label: 'คำขอสิทธิ์', icon: <KeyRound className="h-[18px] w-[18px]" />, badge: pending },
-    ...(user.role !== 'user' ? [{ to: '/audit', label: 'ประวัติการแก้ไข', icon: <History className="h-[18px] w-[18px]" /> }] : []),
+    ...(!isBasicRole(user.role) ? [{ to: '/audit', label: 'ประวัติการแก้ไข', icon: <History className="h-[18px] w-[18px]" /> }] : []),
     ...(user.role === 'admin' ? [{ to: '/users', label: 'จัดการผู้ใช้', icon: <Users className="h-[18px] w-[18px]" /> }] : []),
     { to: '/trash', label: 'ถังขยะ', icon: <Trash2 className="h-[18px] w-[18px]" /> },
+    ...(!isBasicRole(user.role) ? [{ to: '/devices', label: 'อุปกรณ์ (RFID/IoT)', icon: <Cpu className="h-[18px] w-[18px]" /> }] : []),
+    { to: '/traceback', label: 'ย้อนรอย (Traceback)', icon: <GitFork className="h-[18px] w-[18px]" /> },
+    { to: '/dashboards', label: 'แดชบอร์ด', icon: <LayoutDashboard className="h-[18px] w-[18px]" /> },
     { to: '/settings', label: 'ตั้งค่า', icon: <Settings className="h-[18px] w-[18px]" /> },
   ];
 
@@ -60,32 +41,17 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           {items.map((it) => (
             <NavLink key={it.to} to={it.to} end={it.to === '/'} onClick={onNavigate}
               className={({ isActive }) => cn('nav-link', (it.active ?? isActive) && 'active')}>
-              {it.icon}
-              <span className="flex-1">{it.label}</span>
-              {!!it.badge && <span className="mr-2 grid h-5 min-w-5 place-items-center rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white">{it.badge}</span>}
+              {({ isActive }) => (
+                <>
+                  {(it.active ?? isActive) && <motion.span layoutId={`nav-pill-${scope}`} className="nav-pill" transition={{ type: 'spring', stiffness: 420, damping: 38 }} />}
+                  {it.icon}
+                  <span className="flex-1">{it.label}</span>
+                  {!!it.badge && <span className="mr-2 grid h-5 min-w-5 place-items-center rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white">{it.badge}</span>}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
-
-        <Section title="รายการโปรด" icon={<Star className="h-3.5 w-3.5" />} storageKey="dsp_sec_fav">
-          {favorites.length === 0 ? (
-            <p className="px-3 text-xs opacity-60">กดดาวที่ไฟล์หรือโฟลเดอร์เพื่อปักหมุดไว้ที่นี่</p>
-          ) : (
-            <div className="space-y-0.5">
-              {favorites.slice(0, 10).map((f) => (
-                <Link key={`${f.type}:${f.id}`} to={f.type === 'file' ? `/files/${f.id}` : `/folders/${f.id}`} onClick={onNavigate}
-                  className={cn('side-item', pathname.endsWith(f.id) && 'active')} title={f.path}>
-                  <span className={cn('h-2 w-2 shrink-0', f.type === 'file' ? 'rounded-full' : 'rounded-sm')} style={{ background: f.color }} />
-                  <span className="truncate">{f.name}</span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section title="โฟลเดอร์" icon={<FolderOpen className="h-3.5 w-3.5" />} storageKey="dsp_sec_tree">
-          <FolderTree onNavigate={onNavigate} />
-        </Section>
       </div>
 
       <div className="border-t border-white/10 p-3">
@@ -102,14 +68,14 @@ export function Sidebar() {
   const setMobile = useUi((s) => s.setMobileNav);
   return (
     <>
-      <aside className="ds-sidebar hidden h-full shrink-0 lg:block"><SidebarBody /></aside>
+      <aside className="ds-sidebar hidden h-full shrink-0 lg:block"><SidebarBody scope="desktop" /></aside>
       <AnimatePresence>
         {mobile && (
           <motion.div className="fixed inset-0 z-[850] lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-slate-900/50" onClick={() => setMobile(false)} />
             <motion.aside className="ds-sidebar relative h-full max-w-[85vw]" initial={{ x: -300 }} animate={{ x: 0 }} exit={{ x: -300 }} transition={{ type: 'spring', stiffness: 380, damping: 36 }}>
               <button onClick={() => setMobile(false)} className="absolute right-3 top-6 rounded-lg p-1.5 opacity-80 hover:bg-white/10" aria-label="ปิดเมนู"><X className="h-5 w-5" /></button>
-              <SidebarBody onNavigate={() => setMobile(false)} />
+              <SidebarBody scope="mobile" onNavigate={() => setMobile(false)} />
             </motion.aside>
           </motion.div>
         )}

@@ -1,7 +1,7 @@
 import { del, get, post, put } from './client';
 import type {
   AccessList, AccessRequest, AuditEntry, CellValue, Column, ColumnFilter, Crumb, DashboardMeta, DataSource, FileItem, FolderItem,
-  NotificationItem, Perm, Role, Row, Sheet, SheetPrefs, SortSpec, User, UsersDict, Widget, WidgetData,
+  NotificationItem, Perm, Role, Row, Sheet, SheetPrefs, SortSpec, UnionStatus, User, UsersDict, Widget, WidgetData,
 } from '@/types';
 
 export const authApi = {
@@ -9,6 +9,7 @@ export const authApi = {
   refresh: () => post<{ accessToken: string; user: User }>('/auth/refresh'),
   logout: () => post('/auth/logout'),
   me: () => get<User>('/auth/me'),
+  providers: () => get<{ google: boolean; microsoft: boolean }>('/auth/providers'),
   changePassword: (currentPassword: string, newPassword: string) => post('/auth/change-password', { currentPassword, newPassword }),
 };
 
@@ -44,12 +45,40 @@ export const filesApi = {
   accessible: (q = '') => get<{ id: string; name: string; color: string; folderId: string; path: string }[]>('/files/accessible', { q }),
 };
 
+export interface ScanProfile {
+  id: string; name: string; delimiter: string;
+  match?: { prefix?: string | null; regex?: string | null; fieldCount?: number | null } | null;
+  fields: { index: number; columnId: string }[];
+  action: 'create' | 'update'; keyColumnId?: string | null; onMiss?: 'create' | 'reject' | null;
+  stamps?: string[] | null; onFull?: 'ignore' | 'reject' | 'new_row' | null;
+  verify?: ScanVerify | null;
+}
+export interface ScanVerify { sheetId: string; refKeyColumnId: string; checkColumnId?: string | null; fill?: { fromColumnId: string; toColumnId: string }[] | null; onMiss: 'reject' | 'allow' }
+export interface MixCfg { deductColumnId: string; keyColumnId?: string | null; inheritColumnIds?: string[] | null; sameColumnIds?: string[] | null }
+export interface LinesCfg { lineSheetId: string; displayColumnIds?: string[] | null; actions?: { label: string; columnId: string; kind: 'now' | 'value'; value?: string | null }[] | null }
+export interface FormLayout { perRow: number; fields: { columnId: string; span?: number; hidden?: boolean }[] }
+export interface TimeLinkCfg {
+  id: string; name: string; targetSheetId: string;
+  aStartColumnId: string; aEndColumnId?: string | null; aKeyColumnId?: string | null;
+  bStartColumnId: string; bEndColumnId?: string | null; bKeyColumnId?: string | null;
+  toleranceMin?: number | null; windowHours?: number | null;
+}
+export interface SheetSettings { timeLinks?: TimeLinkCfg[]; filterColumns?: string[] | null; scanProfiles?: ScanProfile[]; mix?: MixCfg; lines?: LinesCfg; formLayout?: FormLayout }
 export interface SheetDetail {
+  union?: UnionStatus | null;
+  settings?: SheetSettings;
   sheet: Sheet; file: { id: string; name: string; folderId: string }; level: number; permission: Perm;
   columns: Column[]; deletedColumns: Column[]; prefs: SheetPrefs;
 }
+export const unionApi = {
+  createFile: (b: { name: string; folderId: string; sources: string[] }) => post<{ id: string; sheetId: string }>('/union/files', b),
+  addSheet: (fileId: string, b: { name: string; sources: string[] }) => post<{ id: string }>(`/files/${fileId}/sheets/union`, b),
+  setSources: (sheetId: string, sources: string[]) => put(`/sheets/${sheetId}/union`, { sources }),
+  sync: (sheetId: string) => post(`/sheets/${sheetId}/union/sync`),
+};
 export const sheetsApi = {
   get: (id: string) => get<SheetDetail>(`/sheets/${id}`),
+  saveSettings: (id: string, s: { filterColumns: string[] | null }) => put(`/sheets/${id}/settings`, s),
   savePrefs: (id: string, prefs: Partial<SheetPrefs>) => put<SheetPrefs>(`/sheets/${id}/prefs`, prefs),
   create: (fileId: string, b: { name: string; tabColor?: string | null; columns?: any[]; copyStructureFrom?: string | null }) =>
     post<Sheet>(`/files/${fileId}/sheets`, b),
@@ -69,12 +98,22 @@ export const columnsApi = {
 export interface RowQueryBody { page: number; pageSize: number; sorts: SortSpec[]; filters: ColumnFilter[]; search?: string }
 export interface RowPage { rows: Row[]; total: number; page: number; pageSize: number; users: UsersDict }
 export interface CellVersion { id: number; oldValue: CellValue; newValue: CellValue; source: string; by: string; byName: string; avatarUrl: string | null; at: string; version: number }
+export interface ColumnStat { columnId: string; filled: number; sum: number | null; avg: number | null; min: number | null; max: number | null; trueCount: number | null }
+export interface ImportResult { inserted: number; valid: number; invalid: number; skippedEmpty: number; errors: { rowNo: number; columnId: string; columnName: string; message: string }[] }
 export const rowsApi = {
   query: (sheetId: string, b: RowQueryBody) => post<RowPage>(`/sheets/${sheetId}/rows/query`, b),
   distinct: (sheetId: string, b: { columnId: string; filters: ColumnFilter[]; search?: string; valueSearch?: string; limit?: number }) =>
     post<{ items: { value: any; count: number }[]; blankCount: number; truncated: boolean }>(`/sheets/${sheetId}/distinct`, b),
   create: (sheetId: string, values: Record<string, CellValue>) => post<{ row: Row; users: UsersDict }>(`/sheets/${sheetId}/rows`, { values }),
   remove: (rowId: string) => del(`/rows/${rowId}`),
+  columnStats: (sheetId: string, b: { columnIds: string[]; filters: ColumnFilter[]; search?: string }) =>
+    post<{ totalRows: number; columns: ColumnStat[] }>(`/sheets/${sheetId}/column-stats`, b),
+  lookupOptions: (sheetId: string, b: { columnId: string; parentValue?: string | null; search?: string }) =>
+    post<{ options: string[]; needsParent: boolean }>(`/sheets/${sheetId}/lookup-options`, b),
+  docPreview: (sheetId: string, b: { columnId: string; prefix?: string | null; date?: string | null }) =>
+    post<{ number: string | null }>(`/sheets/${sheetId}/doc-number/preview`, b),
+  importRows: (sheetId: string, b: { rows: { rowNo: number; values: Record<string, unknown> }[]; skipInvalid?: boolean; dryRun?: boolean }) =>
+    post<ImportResult>(`/sheets/${sheetId}/rows/import`, b),
   removeMany: (sheetId: string, rowIds: string[]) => post(`/sheets/${sheetId}/rows/delete`, { rowIds }),
   trash: (sheetId: string) => get<{ rows: Row[]; users: UsersDict }>(`/sheets/${sheetId}/trash`),
   restore: (sheetId: string, rowIds: string[]) => post<{ restored: number }>(`/sheets/${sheetId}/rows/restore`, { rowIds }),
@@ -87,7 +126,7 @@ export const rowsApi = {
 export interface BulkResult { updated: { rowId: string; columnId: string; value: CellValue; at: string; by: string }[]; unchanged: number; errors: { rowId: string; columnId: string; message: string; rowNo?: number; columnName?: string }[] }
 export const cellsApi = {
   update: (rowId: string, columnId: string, value: CellValue) =>
-    put<{ rowId: string; columnId: string; value: CellValue; at: string; by: string; unchanged?: boolean }>(`/rows/${rowId}/cells/${columnId}`, { value }),
+    put<{ rowId: string; columnId: string; value: CellValue; at: string; by: string; unchanged?: boolean; derived?: { rowId: string; columnId: string; value: CellValue; at: string; by: string }[] }>(`/rows/${rowId}/cells/${columnId}`, { value }),
   bulk: (sheetId: string, updates: { rowId: string; columnId: string; value: CellValue }[], partial = false, source = 'edit') =>
     post<BulkResult>(`/sheets/${sheetId}/cells/bulk`, { updates, partial, source }),
   history: (rowId: string, columnId: string) =>
@@ -98,7 +137,7 @@ export const cellsApi = {
 export const accessApi = {
   get: (type: 'file' | 'folder', id: string) => get<AccessList>(`/${type}s/${id}/access`),
   grant: (type: 'file' | 'folder', id: string, b: { userId: string; permission: Perm; expiresAt?: string | null }) =>
-    put<{ granted: boolean; cappedToWrite: boolean }>(`/${type}s/${id}/access`, b),
+    put<{ granted: boolean; cappedTo: 'read' | 'write' | null }>(`/${type}s/${id}/access`, b),
   revoke: (type: 'file' | 'folder', id: string, userId: string) => del(`/${type}s/${id}/access/${userId}`),
 };
 
@@ -146,7 +185,9 @@ export const themesApi = {
   resetOrg: () => del('/themes/org'),
 };
 
+export interface DashboardListItem { id: string; name: string; updatedAt: string; fileId: string; fileName: string; fileColor: string; path: string; canEdit: boolean }
 export const dashboardsApi = {
+  all: () => get<DashboardListItem[]>('/dashboards'),
   list: (fileId: string) => get<DashboardMeta[]>(`/files/${fileId}/dashboards`),
   create: (fileId: string, name: string) => post<DashboardMeta>(`/files/${fileId}/dashboards`, { name }),
   get: (id: string) => get<{ dashboard: DashboardMeta; widgets: Widget[]; file: { id: string; name: string }; sheets: Sheet[]; level: number }>(`/dashboards/${id}`),
@@ -168,4 +209,28 @@ export const trashApi = {
   list: () => get<{ retentionDays: number; items: TrashItem[] }>('/trash'),
   restore: (type: 'file' | 'folder', id: string) => post('/trash/restore', { type, id }),
   purge: (type: 'file' | 'folder', id: string) => del(`/trash/${type}/${id}`),
+};
+
+
+export interface ShareLink {
+  id: string; token: string; permission: 'read' | 'write' | 'manage'; allowGuest: boolean; expiresAt: string | null; isActive: boolean;
+  createdAt: string; createdByName: string | null; accessCount: number; lastUsedAt: string | null; expired: boolean;
+}
+export const shareApi = {
+  list: (fileId: string) => get<ShareLink[]>(`/files/${fileId}/share-links`),
+  create: (fileId: string, b: { permission: ShareLink['permission']; allowGuest: boolean; expiresAt?: string | null }) => post<ShareLink>(`/files/${fileId}/share-links`, b),
+  update: (id: string, b: { permission: ShareLink['permission']; allowGuest: boolean }) => put(`/share-links/${id}`, b),
+  revoke: (id: string) => del(`/share-links/${id}`),
+  redeem: (token: string) => post<{ fileId: string; permission: string; granted: boolean }>(`/share/${token}/redeem`),
+};
+export const publicShareApi = {
+  info: (token: string) => get<{ file: { id: string; name: string; color: string }; permission: string; allowGuest: boolean; sheets: Sheet[] }>(`/public/share/${token}`),
+  sheet: (token: string, sheetId: string) => get<{ sheet: Sheet; columns: Column[] }>(`/public/share/${token}/sheets/${sheetId}`),
+  rows: (token: string, sheetId: string, b: { page: number; pageSize: number; search?: string; sorts?: SortSpec[] }) => post<RowPage>(`/public/share/${token}/sheets/${sheetId}/rows`, b),
+};
+
+export const pdfApi = {
+  get: (fileId: string) => get<{ templates: any[]; canEdit: boolean }>(`/files/${fileId}/pdf-templates`),
+  save: (fileId: string, templates: any[]) => put(`/files/${fileId}/pdf-templates`, { templates }),
+  copyFrom: (fileId: string, sourceFileId: string, templateIds?: string[]) => post<{ templates: any[] }>(`/files/${fileId}/pdf-templates/copy-from`, { sourceFileId, templateIds }),
 };

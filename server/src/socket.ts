@@ -1,3 +1,4 @@
+import { invalidateRowCount } from './services/rowCount';
 import http from 'http';
 import { Server as IOServer } from 'socket.io';
 import { env } from './config/env';
@@ -5,6 +6,7 @@ import { AuthUser, loadAuthUser, verifyAccessToken } from './middleware/auth';
 import { isGuid } from './shared/http';
 import { LV, requireSheet } from './shared/permissions';
 import { logger } from './shared/logger';
+import { attachCluster } from './services/cluster';
 
 let io: IOServer | null = null;
 
@@ -13,6 +15,7 @@ export function initSocket(server: http.Server) {
     cors: { origin: env.corsOrigins, credentials: true },
     path: '/socket.io',
   });
+  attachCluster(io); // with REDIS_URL: events reach people connected to the other server too
 
   io.use(async (socket, next) => {
     try {
@@ -87,6 +90,7 @@ export function emitToUser(userId: string, event: string, payload: unknown) {
 }
 
 export function emitToSheet(sheetId: string, event: string, payload: unknown, exceptSocketId?: string) {
+  if (event === 'rows:changed') invalidateRowCount(sheetId); // rows were added / removed: the remembered totals are stale
   if (!io) return;
   const target = io.to(`sheet:${sheetId}`);
   (exceptSocketId ? target.except(exceptSocketId) : target).emit(event, payload);

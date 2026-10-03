@@ -1,3 +1,4 @@
+import { AlertEditor } from '@/modules/alerts/AlertEditor';
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, ArrowUp, ChevronDown, GripVertical, Plus, Trash2, X } from 'lucide-react';
@@ -7,6 +8,11 @@ import { SWATCHES } from '@/lib/format';
 import type { ColumnDraft, DataType, SelectOption } from '@/types';
 import { Checkbox, Field, Select, TextInput } from '../ui/Inputs';
 import { FieldInput } from '../sheet/FieldInput';
+import { LookupEditor } from './LookupEditor';
+import { DOC_TOKENS, hasPrefixToken, renderDocPreview } from '@/lib/docNumber';
+import { Segmented, Toggle } from '../ui/Inputs';
+import { FormulaEditor } from '@/modules/formula/FormulaEditor';
+import { canHaveFormula } from '@/modules/formula/expr';
 
 function OptionsEditor({ options, onChange }: { options: SelectOption[]; onChange: (o: SelectOption[]) => void }) {
   const [draft, setDraft] = useState('');
@@ -40,28 +46,86 @@ function OptionsEditor({ options, onChange }: { options: SelectOption[]; onChang
 
 const num = (s: string) => (s.trim() === '' ? null : Number(s));
 
-function ColumnDetails({ c, set }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void }) {
+/** Auto-numbered document id: free-form template + where the prefixes (CSM, CSN …) come from */
+function DocNumberEditor({ c, setV, siblings, fileId, fileName }: { c: ColumnDraft; setV: (p: Record<string, unknown>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string }) {
+  const d = c.validation?.docNumber ?? { template: '', prefixes: [], prefixLookup: null, dateColumnId: null };
+  const set = (p: Partial<typeof d>) => setV({ docNumber: { ...d, ...p } });
+  const usesPrefix = hasPrefixToken(d.template);
+  const dateCols = siblings.filter((s) => s.id && s.key !== c.key && (s.dataType === 'date' || s.dataType === 'datetime'));
+  const sample = d.prefixes?.[0] ?? 'CSM';
+  return (
+    <div className="space-y-3 rounded-xl border border-primary/25 bg-primary/[.03] p-3 md:col-span-2">
+      <p className="text-[13px] font-semibold text-primary">รูปแบบเลขที่เอกสาร</p>
+      <Field label="รูปแบบ (พิมพ์ข้อความคงที่ปนกับตัวแปรได้อิสระ)" hint="เช่น {PREFIX}-{YYMMDD}-{SEQ:3} → CSM-260926-009">
+        <TextInput value={d.template} onChange={(e) => set({ template: e.target.value })} placeholder="{PREFIX}-{YYMMDD}-{SEQ:3}" className="font-mono" />
+      </Field>
+      <div className="flex flex-wrap gap-1.5">
+        {DOC_TOKENS.map((t) => (
+          <button key={t.token} type="button" title={t.label} onClick={() => set({ template: d.template + t.token })}
+            className="rounded-full border border-line bg-surface px-2.5 py-1 font-mono text-xs hover:border-primary/50 hover:text-primary">{t.token}</button>
+        ))}
+      </div>
+      {d.template && <p className="text-sm">ตัวอย่างเลขที่ที่จะได้: <b className="font-mono text-primary">{renderDocPreview(d.template, usesPrefix ? sample : null)}</b></p>}
+      {d.template && !/\{SEQ(:\d+)?\}/.test(d.template) && <p className="text-xs text-warning">ยังไม่มี {'{SEQ:3}'} — เลขที่อาจซ้ำกันได้ ควรใส่ตัวนับฉบับ</p>}
+      {usesPrefix && (
+        <div className="space-y-2">
+          <Segmented size="sm" value={d.prefixLookup ? 'lookup' : 'custom'} onChange={(m) => set(m === 'lookup' ? { prefixLookup: { sheetId: '', columnId: '' }, prefixes: null } : { prefixLookup: null, prefixes: d.prefixes ?? [] })}
+            options={[{ value: 'custom', label: 'กำหนดหัวเลขเอง' }, { value: 'lookup', label: 'ดึงหัวเลขจากตารางอื่น' }]} />
+          {d.prefixLookup
+            ? <LookupEditor title="ตารางที่เก็บหัวเลข (เช่น CSM, CSN, CSR)" lookup={d.prefixLookup} onChange={(l) => set({ prefixLookup: { sheetId: l.sheetId, columnId: l.columnId } })} siblings={siblings} selfKey={c.key} fileId={fileId} fileName={fileName} hideParent />
+            : <Field label="รายการหัวเลข (คั่นด้วยเครื่องหมายจุลภาค)"><TextInput value={(d.prefixes ?? []).join(', ')} onChange={(e) => set({ prefixes: e.target.value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) })} placeholder="CSM, CSN, CSR" /></Field>}
+        </div>
+      )}
+      {/\{(YY|YYYY|MM|DD|YYMMDD|YYYYMMDD|YYMM|BB|BBBB)\}/.test(d.template) && (
+        <Field label="วันที่ที่ใช้ในเลขที่">
+          <Select value={d.dateColumnId ?? ''} onChange={(e) => set({ dateColumnId: e.target.value || null })}>
+            <option value="">วันที่ที่บันทึกแถว (วันนี้)</option>
+            {dateCols.map((s) => <option key={s.key} value={s.id}>{s.name || '(ไม่มีชื่อ)'}</option>)}
+          </Select>
+        </Field>
+      )}
+      <p className="text-xs text-muted">เลขที่ออกให้อัตโนมัติตอนบันทึกแถว เลขฉบับ ({'{SEQ}'}) จะเริ่มนับใหม่เมื่อส่วนอื่นของเลขที่เปลี่ยน เช่น เปลี่ยนวัน หรือเปลี่ยนหัวเลข</p>
+    </div>
+  );
+}
+
+function ColumnDetails({ c, set, siblings, fileId, fileName, sheetId, onAddDraft }: { c: ColumnDraft; set: (p: Partial<ColumnDraft>) => void; siblings: ColumnDraft[]; fileId?: string; fileName?: string; sheetId?: string; onAddDraft?: (d: ColumnDraft) => void }) {
   const v = c.validation ?? {};
   const setV = (p: Record<string, unknown>) => set({ validation: { ...v, ...p } });
+  const isLookup = !!v.lookup;
   return (
     <div className="grid gap-4 border-t border-line bg-ink/[.02] p-4 md:grid-cols-2">
       <Field label="คำอธิบาย (แสดงเป็นคำแนะนำ)"><TextInput value={c.description ?? ''} onChange={(e) => set({ description: e.target.value })} /></Field>
       <Field label="ข้อความตัวอย่างในช่องกรอก"><TextInput value={c.placeholder ?? ''} onChange={(e) => set({ placeholder: e.target.value })} /></Field>
+      {c.dataType === 'doc_number' && <DocNumberEditor c={c} setV={setV} siblings={siblings} fileId={fileId} fileName={fileName} />}
+      {canHaveFormula(c.dataType) && !isLookup && <FormulaEditor c={c} setV={setV} siblings={siblings} sheetId={sheetId} />}
+      {c.id && c.dataType !== 'image' && <AlertEditor c={c} setV={setV} siblings={siblings} sheetId={sheetId} onAddDraft={onAddDraft} />}
       {isSelect(c.dataType) && (
-        <Field label="ตัวเลือก" className="md:col-span-2" hint="กดวงกลมเพื่อเปลี่ยนสีของแต่ละตัวเลือก">
-          <OptionsEditor options={c.options ?? []} onChange={(options) => set({ options })} />
-        </Field>
+        <div className="space-y-3 md:col-span-2">
+          <Segmented size="sm" value={isLookup ? 'lookup' : 'custom'} onChange={(m) => setV({ lookup: m === 'lookup' ? { sheetId: '', columnId: '', parent: null } : null })}
+            options={[{ value: 'custom', label: 'กำหนดตัวเลือกเอง' }, { value: 'lookup', label: 'ดึงจากตารางอื่น (Relationship)' }]} />
+          {isLookup && v.lookup ? (
+            <LookupEditor lookup={v.lookup} onChange={(lookup) => setV({ lookup })} siblings={siblings} selfKey={c.key} fileId={fileId} fileName={fileName} />
+          ) : (
+            <Field label="ตัวเลือก" hint="กดวงกลมเพื่อเปลี่ยนสีของแต่ละตัวเลือก">
+              <OptionsEditor options={c.options ?? []} onChange={(options) => set({ options })} />
+            </Field>
+          )}
+          <Toggle checked={v.allowEmpty !== false && !c.isRequired} disabled={c.isRequired} onChange={(x) => setV({ allowEmpty: x })}
+            label={<span>มีตัวเลือก “— ไม่ระบุ —” {c.isRequired && <span className="text-xs text-muted">(คอลัมน์บังคับกรอกจะไม่มีตัวเลือกนี้)</span>}</span>} />
+        </div>
       )}
       {isNumeric(c.dataType) && (
         <>
           <Field label="ค่าต่ำสุด"><TextInput inputMode="decimal" value={v.min ?? ''} onChange={(e) => setV({ min: num(e.target.value) })} /></Field>
           <Field label="ค่าสูงสุด"><TextInput inputMode="decimal" value={v.max ?? ''} onChange={(e) => setV({ max: num(e.target.value) })} /></Field>
+          <Field label="จำนวนหลักสูงสุด" hint="ไม่นับเครื่องหมาย/จุดทศนิยม/ลูกน้ำ — ใช้กับการพิมพ์ สแกน และนำเข้า"><TextInput inputMode="numeric" value={v.maxDigits ?? ''} onChange={(e) => setV({ maxDigits: num(e.target.value) })} /></Field>
           {c.dataType === 'float' && <Field label="จำนวนทศนิยม"><TextInput inputMode="numeric" value={v.decimals ?? ''} onChange={(e) => setV({ decimals: num(e.target.value) })} /></Field>}
         </>
       )}
       {(c.dataType === 'varchar' || c.dataType === 'text') && (
         <>
-          <Field label="ความยาวสูงสุด (ตัวอักษร)"><TextInput inputMode="numeric" value={v.maxLength ?? ''} onChange={(e) => setV({ maxLength: num(e.target.value) })} /></Field>
+          <Field label="ความยาวสูงสุด (ตัวอักษร)" hint="ค่าที่สแกนหรือนำเข้ามายาวเกินจะถูกปฏิเสธ"><TextInput inputMode="numeric" value={v.maxLength ?? ''} onChange={(e) => setV({ maxLength: num(e.target.value) })} /></Field>
           <Field label="รูปแบบ (Regex)" hint="เช่น ^PF\d-\d{2}$"><TextInput value={v.pattern ?? ''} onChange={(e) => setV({ pattern: e.target.value || null })} className="font-mono" /></Field>
           {v.pattern && <Field label="ข้อความเมื่อรูปแบบไม่ถูกต้อง"><TextInput value={v.patternMessage ?? ''} onChange={(e) => setV({ patternMessage: e.target.value })} /></Field>}
         </>
@@ -72,14 +136,19 @@ function ColumnDetails({ c, set }: { c: ColumnDraft; set: (p: Partial<ColumnDraf
           <Field label="วันที่ช้าที่สุด"><TextInput type="date" value={v.maxDate ?? ''} onChange={(e) => setV({ maxDate: e.target.value || null })} /></Field>
         </>
       )}
+      {c.dataType === 'image' && <Field label="จำนวนรูปสูงสุดต่อเซลล์ (ว่าง = ไม่จำกัด)"><TextInput inputMode="numeric" value={v.maxSelections ?? ''} onChange={(e) => setV({ maxSelections: num(e.target.value) })} /></Field>}
       {c.dataType === 'multi_select' && <Field label="เลือกได้สูงสุด"><TextInput inputMode="numeric" value={v.maxSelections ?? ''} onChange={(e) => setV({ maxSelections: num(e.target.value) })} /></Field>}
-      <Field label="ค่าเริ่มต้นเมื่อเพิ่มแถวใหม่">
-        <FieldInput col={{ ...c, placeholder: 'ไม่มี', options: c.options ?? [], validation: v } as any} value={c.defaultValue ?? null} onChange={(d) => set({ defaultValue: d })} />
-      </Field>
+      {c.dataType !== 'doc_number' && !v.formula && (
+        <Field label="ค่าเริ่มต้นเมื่อเพิ่มแถวใหม่">
+          <FieldInput col={{ ...c, placeholder: 'ไม่มี', options: c.options ?? [], validation: v } as any} value={c.defaultValue ?? null} onChange={(d) => set({ defaultValue: d })} />
+        </Field>
+      )}
       <Field label="ความกว้างเริ่มต้น (px)"><TextInput inputMode="numeric" value={c.width} onChange={(e) => set({ width: Math.max(40, Math.min(1200, Number(e.target.value) || 40)) })} /></Field>
     </div>
   );
 }
+
+const lookupDone = (c: ColumnDraft) => !!c.validation?.lookup?.sheetId && !!c.validation.lookup.columnId && (!c.validation.lookup.parent || (!!c.validation.lookup.parent.localColumnId && !!c.validation.lookup.parent.foreignColumnId));
 
 export function validateDrafts(cols: ColumnDraft[]): string | null {
   if (!cols.length) return 'ต้องมีอย่างน้อย 1 คอลัมน์';
@@ -89,7 +158,14 @@ export function validateDrafts(cols: ColumnDraft[]): string | null {
     if (!n) return `คอลัมน์ที่ ${i + 1} ยังไม่มีชื่อ`;
     if (seen.has(n.toLowerCase())) return `ชื่อคอลัมน์ "${n}" ซ้ำกัน`;
     seen.add(n.toLowerCase());
-    if (isSelect(c.dataType) && !(c.options ?? []).length) return `คอลัมน์ "${n}" ต้องมีตัวเลือกอย่างน้อย 1 รายการ`;
+    if (isSelect(c.dataType) && c.validation?.lookup) { if (!lookupDone(c)) return `คอลัมน์ "${n}": เลือกตารางและคอลัมน์ต้นทางของ Relationship ให้ครบ`; }
+    else if (c.dataType === 'doc_number') {
+      const dn = c.validation?.docNumber;
+      if (!dn?.template?.trim()) return `คอลัมน์ "${n}": กรุณากำหนดรูปแบบเลขที่`;
+      if (hasPrefixToken(dn.template) && !(dn.prefixes?.length) && !(dn.prefixLookup?.sheetId && dn.prefixLookup.columnId)) return `คอลัมน์ "${n}": กำหนดรายการหัวเลข หรือเลือกตารางที่เก็บหัวเลข`;
+    }
+    else if (c.validation?.formula && !c.validation.formula.expr.trim()) return `คอลัมน์ "${n}": กรุณาใส่สูตร หรือปิดการคำนวณด้วยสูตร`;
+    else if (isSelect(c.dataType) && !(c.options ?? []).length) return `คอลัมน์ "${n}" ต้องมีตัวเลือกอย่างน้อย 1 รายการ`;
   }
   return null;
 }
@@ -98,10 +174,10 @@ export const draftToPayload = (c: ColumnDraft) => ({
   name: c.name.trim(), dataType: c.dataType, isRequired: c.isRequired, width: c.width,
   defaultValue: c.defaultValue === '' ? null : c.defaultValue ?? null, placeholder: c.placeholder || null, description: c.description || null,
   validation: c.validation && Object.values(c.validation).some((x) => x !== null && x !== undefined && x !== '') ? c.validation : null,
-  options: isSelect(c.dataType) ? (c.options ?? []).map((o) => ({ ...o, label: o.label.trim() || o.value })) : null,
+  options: isSelect(c.dataType) && !c.validation?.lookup ? (c.options ?? []).map((o) => ({ ...o, label: o.label.trim() || o.value })) : null,
 });
 
-export function ColumnEditor({ columns, onChange, lockedTypes }: { columns: ColumnDraft[]; onChange: (c: ColumnDraft[]) => void; lockedTypes?: boolean }) {
+export function ColumnEditor({ columns, onChange, lockedTypes, fileId, fileName, sheetId }: { columns: ColumnDraft[]; onChange: (c: ColumnDraft[]) => void; lockedTypes?: boolean; fileId?: string; fileName?: string; sheetId?: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const set = (key: string, p: Partial<ColumnDraft>) => onChange(columns.map((c) => (c.key === key ? { ...c, ...p } : c)));
@@ -165,7 +241,7 @@ export function ColumnEditor({ columns, onChange, lockedTypes }: { columns: Colu
             <AnimatePresence initial={false}>
               {open === c.key && (
                 <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
-                  <ColumnDetails c={c} set={(p) => set(c.key, p)} />
+                  <ColumnDetails c={c} set={(p) => set(c.key, p)} siblings={columns} fileId={fileId} fileName={fileName} sheetId={sheetId} onAddDraft={(d) => onChange([...columns, d])} />
                 </motion.div>
               )}
             </AnimatePresence>

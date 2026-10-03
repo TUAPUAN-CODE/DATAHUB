@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { Router } from 'express';
+import { isBasicRole } from '../middleware/auth';
 import { z } from 'zod';
 import { idList, jsonParam, q, q1, T, withTx } from '../config/db';
 import { env } from '../config/env';
@@ -67,7 +68,7 @@ router.get(
     const ctx = await PermCtx.load(u);
     const vis = await ctx.visibility();
     const [favFolders, favFiles, counts] = await Promise.all([favoriteSet(u.id, 'folder'), favoriteSet(u.id, 'file'), fileCounts()]);
-    const canCreateRoot = u.role !== 'user';
+    const canCreateRoot = !isBasicRole(u.role);
 
     if (req.params.id === 'root') {
       const subfolders = (ctx.index.children.get(null) ?? []).filter(vis).map((id) => folderOut(ctx, id, favFolders, counts, vis));
@@ -102,7 +103,7 @@ router.post(
   '/folders',
   ah(async (req, res) => {
     const u = req.user!;
-    if (u.role === 'user') throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่สร้างโฟลเดอร์ได้');
+    if (isBasicRole(u.role)) throw forbidden('เฉพาะ Master หรือ Admin เท่านั้นที่สร้างโฟลเดอร์ได้');
     const body = parse(folderBody.extend({ parentId: zId.nullish() }), req.body);
     if (body.parentId) await requireFolder(u, body.parentId, LV.write);
     const dup = await q1(
@@ -151,7 +152,7 @@ router.post(
     if (parentId) {
       if (ctx.descendants(id).includes(parentId)) throw badRequest('ไม่สามารถย้ายโฟลเดอร์ไปไว้ในโฟลเดอร์ย่อยของตัวเองได้');
       await requireFolder(u, parentId, LV.write);
-    } else if (u.role === 'user') throw forbidden();
+    } else if (isBasicRole(u.role)) throw forbidden();
     await q(`UPDATE Folders SET parent_id = @p, updated_at = SYSUTCDATETIME() WHERE folder_id = @id`, { p: T.uuid(parentId), id: T.uuid(id) });
     invalidateFolders();
     await audit({ userId: u.id, action: 'folder_move', entityType: 'folder', entityId: id, oldValue: { parentId: folder.parentId }, newValue: { parentId } }, req);

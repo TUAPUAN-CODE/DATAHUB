@@ -1,4 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
+import { isBasicRole } from '@/types';
 import { motion } from 'framer-motion';
 import { Clock, FilePlus2, FolderPlus, Star } from 'lucide-react';
 import { useState } from 'react';
@@ -24,7 +25,7 @@ export default function HomePage() {
   const recent = useLoad(() => activityApi.recent(), []);
   const [newFolder, setNewFolder] = useState(false);
   const roots = tree.filter((f) => !f.parentId).slice(0, 8);
-  const canCreate = user.role !== 'user';
+  const canCreate = !isBasicRole(user.role);
 
   return (
     <Page>

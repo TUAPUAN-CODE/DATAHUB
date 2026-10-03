@@ -28,6 +28,30 @@ The UI is in Thai. This README is in English and uses Thai terms where helpful.
 | UI customization | Every colour, radius, spacing and font size can be changed. **Google Fonts** can be chosen in the app (42 curated fonts, including Thai, plus any other font by name). Per-component overrides are available for sidebar, top bar, card, button, input, table header/cell, modal and widget. Themes are saved per user; admins can set an organisation default. |
 | SharePoint-like file manager, icons, animations | Activity feed cards ("Viewed/Edited N min ago"), grid/list views, and folder names in accent colours. A file card expands into the workspace when opened. Rows animate in, and remote edits flash. |
 
+### What's new
+
+| Area | Feature |
+|---|---|
+| Dashboard | **Slicers** (filter widgets): dropdown with search, dropdown, checkbox list, buttons, radio, text search, number range, date range. They filter every widget on the same sheet (or only the ones you pick). |
+| Dashboard | **Card** with heading / sub-heading / description (each can be shown or hidden), optional icon and an optional live number from a table. |
+| Dashboard | **Condition card**: compares value A with value B (each from any sheet in any file) using `<  <=  >  >=  =  !=` and shows your pass / fail message and colour. |
+| Dashboard | New charts: **Pareto, Histogram, Heatmap, X chart (individuals), X-bar chart, 100% stacked bar**. |
+| Dashboard | **Layer manager** (drag to reorder, show/hide, lock) and **full screen** presentation mode. |
+| Dashboard | Power BI-style format pane: axes, data labels, legend, gridlines, number format, reference / average lines, combo series with a secondary axis, control limits (UCL/LCL/USL/LSL). |
+| Files | **Excel (.xlsx) export**, and **share links** (`/s/<token>`): visitors without an account get a read-only view; signed-in users receive the permission chosen for the link. |
+| Login | **Google / Microsoft sign-in** (see `server/.env.example`). |
+| Roles | `viewer` (read only), `user` (enters data in tables; cannot change columns or structure), `master`, `admin`. |
+| Tables | **Import from Excel / CSV** (column mapping, validation report, template download), **relationships** (a select column takes its options from a column of another sheet, optionally filtered by another column in the same row, e.g. Plant → Line), and an option to hide the “— ไม่ระบุ —” choice. |
+| Tables | **Auto document numbers** (column type “เลขที่เอกสารอัตโนมัติ”): free-form template such as `{PREFIX}-{YYMMDD}-{SEQ:3}` → `CSM-260926-009`; prefixes (CSM/CSN/CSR) come from a fixed list or from a column of another sheet; the running number restarts when the date or prefix changes. |
+| Files | **Union files / sheets**: gather the rows of several sheets (from different files) into one read-only sheet. Every source must have exactly the same columns (name, type, required flag, options, rules) – the system lists each difference. A “source” column shows where a row came from; data re-syncs automatically (or with “ซิงค์ตอนนี้”). |
+| Tables | Click column headers (Ctrl/Shift for several) to see **row count and sum / average / min / max** of whole columns for the current filter; managers choose which columns appear in the **filter / sort bar** per sheet; file pickers browse **folder → sub-folder → file** (with search). |
+| Export | **PDF export** with a per-file layout designer (owners / managers / admin): page size & orientation, margins, Thai fonts, header / footer with page numbers, text, images / logos, lines, multi-column rows, tables (chosen columns, rows per page + page break, colours, zebra rows, summary row), watermark, per-row forms (one page per row) and absolute positioning. Layouts are copied with the file, can be copied from another file and exported / imported as JSON. |
+| Tables | **Formula columns (ƒ)**: a column can be computed from the others in the row — `IF`, `ROUND`, `DATEDIFF`, `MINUTES`, `DURATION`, `HOUR`, text and date functions; edited by column names, recalculated on every change, read-only for users. |
+| Export | **Export dialog**: questions defined by the layout (Line, Plant, date …), `{{shift}}` (DS/NS), **signature boxes**, a **Date / Shift / Line / Plant row** block, and **“keep a copy in the system”** → *เอกสารที่ออกแล้ว* (who / when / signers, SHA-256, download again). |
+| Sidebar | **Dashboards** page listing every dashboard you can open; row delete button (hover the row number, or select rows and use the toolbar). |
+
+> Existing databases: start the API once (or run `npm run db:init`) – `database/02_*.sql` and `03_*.sql` to `05_*.sql` are applied automatically and is safe to re-run.
+
 ### Dashboard details
 
 The dashboard supports:
@@ -255,3 +279,5 @@ All endpoints are under `/api`, return JSON, and require a Bearer token except `
 - **`Invalid object name 'OPENJSON'`.** The database compatibility level must be 130 or higher. `00_create_database.sql` sets it to 150.
 - **The refresh cookie is not kept after deployment.** Serve the site over HTTPS, or set `COOKIE_SECURE=false` for an internal HTTP-only host. Also make sure `CORS_ORIGIN` matches the site URL.
 - **Thai text shows as `?`.** All text columns are `NVARCHAR`. If you query in SSMS, use the `N'...'` prefix for literals.
+
+More: [docs/MODULES.md](docs/MODULES.md) (extension points) · [docs/presets/rm-pack-report.md](docs/presets/rm-pack-report.md) (PFCM report preset).

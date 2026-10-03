@@ -4,7 +4,7 @@ import path from 'path';
 import { Router } from 'express';
 import multer from 'multer';
 import { env } from '../config/env';
-import { ah, badRequest, ok } from '../shared/http';
+import { ah, badRequest, forbidden, ok } from '../shared/http';
 
 const router = Router();
 const dir = path.resolve(env.uploadDir);
@@ -23,6 +23,7 @@ const upload = multer({
 
 router.post(
   '/uploads/image',
+  (req, _res, next) => (req.user?.role === 'viewer' ? next(forbidden('บทบาท Viewer อัปโหลดไฟล์ไม่ได้')) : next()),
   upload.single('file'),
   ah(async (req, res) => {
     if (!req.file) throw badRequest('รองรับเฉพาะไฟล์รูปภาพ PNG, JPG, GIF, WEBP');

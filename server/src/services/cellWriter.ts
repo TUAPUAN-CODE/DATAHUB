@@ -14,7 +14,10 @@ import {
 } from '../shared/cellValue';
 import { badRequest, reqMeta } from '../shared/http';
 import { LV, requireSheet } from '../shared/permissions';
+import { getLookup, lookupResolver, normalizeWithLookup } from './lookup';
+import { docPrefixes, getDocCfg, interpretDocRaw, nextDocNumbers, dateParts, DocNumberCfg } from './docNumber';
 import { emitToSheet } from '../socket';
+import { columnWriteBlockedReason, runAfterCellsWritten } from './hooks';
 
 export async function loadColumns(sheetId: string, tx?: Tx | null, includeDeleted = false) {
   return q(
@@ -159,8 +162,34 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
     : [];
   const rowMap = new Map(rows.map((r) => [r.row_id, r]));
 
+  // Parent values of dependent drop-downs: this batch wins over what is stored
+  const resolve = lookupResolver();
+  const parentCols = new Set<string>();
+  for (const c of colMap.values()) { const l = getLookup(c); if (l?.parent) parentCols.add(l.parent.localColumnId); }
+  const stored = new Map<string, Record<string, unknown>>();
+  if (parentCols.size && rowIds.length) {
+    const cells = await q(
+      `SELECT row_id, column_id, value_text, value_int, value_float, value_date, value_bool, value_json FROM Cells
+       WHERE row_id IN ${idList('@ids')} AND column_id IN ${idList('@cc')}`,
+      { ids: jsonParam(rowIds), cc: jsonParam([...parentCols]) },
+    );
+    for (const c of cells) {
+      const def = colMap.get(c.column_id);
+      if (!def) continue;
+      if (!stored.has(c.row_id)) stored.set(c.row_id, {});
+      stored.get(c.row_id)![c.column_id] = fromStorage(def.data_type, c);
+    }
+  }
+  const batchValues = new Map<string, Record<string, unknown>>();
+  for (const u of updates) {
+    const k = u.rowId.toLowerCase();
+    if (!batchValues.has(k)) batchValues.set(k, {});
+    batchValues.get(k)![u.columnId.toLowerCase()] = u.value;
+  }
+
   const errors: CellError[] = [];
-  const valid: { rowId: string; col: ColumnDef; rowNo: number; value: CellValue }[] = [];
+  const valid: { rowId: string; col: ColumnDef; rowNo: number; value: CellValue; gen?: { cfg: DocNumberCfg; prefix: string | null } }[] = [];
+  const prefixCache = new Map<string, string[]>();
   const seen = new Set<string>();
   for (const u of updates) {
     const rowId = u.rowId.toLowerCase();
@@ -175,7 +204,22 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
       errors.push({ rowId, columnId, columnName: col.column_name, message: 'ไม่พบแถว (อาจถูกลบแล้ว)' });
       continue;
     }
-    const n = normalizeValue(col, u.value, { skipRequired: opts.skipRequired });
+    const blocked = columnWriteBlockedReason({ ...col, validation: col.validation as Record<string, any> }, opts.source ?? 'edit');
+    if (blocked) { errors.push({ rowId, columnId, rowNo: row.row_order, columnName: col.column_name, message: blocked }); continue; }
+    let rawValue = u.value;
+    let gen: { cfg: DocNumberCfg; prefix: string | null } | undefined;
+    const dc = getDocCfg(col);
+    if (dc) {
+      if (!prefixCache.has(col.column_id)) prefixCache.set(col.column_id, await docPrefixes(dc));
+      const dr = interpretDocRaw(col, dc, u.value, prefixCache.get(col.column_id)!, 'update');
+      if (!dr.ok) { errors.push({ rowId, columnId, rowNo: row.row_order, columnName: col.column_name, message: dr.error }); continue; }
+      if (dr.kind === 'generate') gen = { cfg: dc, prefix: dr.prefix };
+      else rawValue = dr.value;
+    }
+    const parentVals = { ...(stored.get(rowId) ?? {}), ...(batchValues.get(rowId) ?? {}) };
+    const pl = getLookup(col)?.parent;
+    const pv = pl ? parentVals[pl.localColumnId] : null;
+    const n = gen ? ({ ok: true, value: null } as const) : await normalizeWithLookup(col, rawValue, pv === null || pv === undefined || pv === '' ? null : String(Array.isArray(pv) ? pv[0] : pv), resolve, { skipRequired: opts.skipRequired });
     if (!n.ok) {
       errors.push({ rowId, columnId, rowNo: row.row_order, columnName: col.column_name, message: n.error });
       continue;
@@ -186,7 +230,7 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
       if (idx >= 0) valid.splice(idx, 1);
     }
     seen.add(key);
-    valid.push({ rowId, col, rowNo: row.row_order, value: n.value });
+    valid.push({ rowId, col, rowNo: row.row_order, value: n.value, gen });
   }
   if (errors.length && !opts.partial) {
     throw badRequest(errors.length === 1 ? errors[0].message : `ข้อมูลไม่ถูกต้อง ${errors.length} เซลล์: ${errors[0].message}`, {
@@ -207,7 +251,9 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
       at: Date | null;
     }[] = [];
     for (const v of valid) {
-      const r = await writeCell(tx, { sheetId, rowId: v.rowId, col: v.col, value: v.value, userId: user.id, source });
+      let value = v.value;
+      if (v.gen) [value] = await nextDocNumbers(tx, sheetId, v.col, v.gen.cfg, [{ prefix: v.gen.prefix, date: dateParts(null) }]);
+      const r = await writeCell(tx, { sheetId, rowId: v.rowId, col: v.col, value, userId: user.id, source });
       if (r.changed)
         out.push({
           rowId: v.rowId,
@@ -219,6 +265,11 @@ export async function applyCellUpdates(user: AuthUser, sheetId: string, updates:
           historyId: r.historyId,
           at: r.at,
         });
+    }
+    // modules (e.g. formula columns) react to the edit inside the same transaction; their cells are reported like edits
+    if (out.length) {
+      const extra = await runAfterCellsWritten({ tx, user, sheetId, rowIds: [...new Set(out.map((w) => w.rowId))], source });
+      for (const x of extra) if (!out.some((w) => w.rowId === x.rowId && w.columnId === x.columnId)) out.push(x);
     }
     await auditMany(
       out.map((w) => ({

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowDownAZ, ChevronRight, FilePlus2, FolderOpen, FolderPlus, LayoutGrid, List, Lock, Plus, Search, Share2 } from 'lucide-react';
+import { ArrowDownAZ, ChevronRight, FilePlus2, FolderOpen, FolderPlus, Layers, LayoutGrid, List, Lock, Plus, Search, Share2 } from 'lucide-react';
 import { foldersApi } from '@/api/endpoints';
 import { MetaModal, RequestAccessForm, ShareDialog } from '@/components/files/Dialogs';
+import { UnionDialog } from '@/components/files/UnionDialog';
 import { FolderGlyph } from '@/components/files/icons';
 import { Item, ItemCard, ItemRow } from '@/components/files/ItemViews';
 import { useItemActions } from '@/components/files/useItemActions';
@@ -19,7 +20,7 @@ import { levelToPerm } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 import { useData } from '@/store/data';
 import { toast } from '@/store/ui';
-import { LV } from '@/types';
+import { LV, isBasicRole } from '@/types';
 
 export default function FolderPage() {
   const { id = 'root' } = useParams();
@@ -30,6 +31,7 @@ export default function FolderPage() {
   const [sort, setSort] = useState<'name' | 'updated'>('name');
   const [filter, setFilter] = useState('');
   const [newOpen, setNewOpen] = useState(false);
+  const [union, setUnion] = useState(false);
   const [newFolder, setNewFolder] = useState(false);
   const [share, setShare] = useState(false);
   const [dropCrumb, setDropCrumb] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export default function FolderPage() {
 
   const folder = data?.folder;
   const level = data?.level ?? 0;
-  const canCreate = role !== 'user' && (id === 'root' ? true : level >= LV.write);
+  const canCreate = !isBasicRole(role) && (id === 'root' ? true : level >= LV.write);
   const crumbs = [{ id: 'root', name: 'ไฟล์ทั้งหมด' }, ...(data?.breadcrumb ?? [])];
 
   return (
@@ -99,7 +101,7 @@ export default function FolderPage() {
               <Popover open={newOpen} onClose={() => setNewOpen(false)} anchor={newBtn.current} placement="bottom-end" width={220}>
                 <MenuList onClose={() => setNewOpen(false)} items={[
                   { label: 'โฟลเดอร์', icon: <FolderPlus />, onClick: () => setNewFolder(true) },
-                  ...(folder ? [{ label: 'ไฟล์ (ตัวสร้างฟอร์ม)', icon: <FilePlus2 />, onClick: () => nav(`/files/new?folder=${folder.id}`) }] : []),
+                  ...(folder ? [{ label: 'ไฟล์ (ตัวสร้างฟอร์ม)', icon: <FilePlus2 />, onClick: () => nav(`/files/new?folder=${folder.id}`) }, { label: 'ไฟล์รวมข้อมูลจากไฟล์อื่น', icon: <Layers />, onClick: () => setUnion(true) }] : []),
                 ]} />
               </Popover>
             </>
@@ -148,6 +150,7 @@ export default function FolderPage() {
       )}
 
       {actions.ui}
+      {folder && <UnionDialog open={union} onClose={() => setUnion(false)} mode="file" folderId={folder.id} onDone={(r) => { void useData.getState().loadTree(); nav(`/files/${r.fileId}`); }} />}
       <MetaModal open={newFolder} onClose={() => setNewFolder(false)} title={folder ? `โฟลเดอร์ใหม่ใน “${folder.name}”` : 'โฟลเดอร์ใหม่'} initial={{ name: '', color: folder?.color ?? '#1552F0' }}
         onSubmit={async (v) => { await foldersApi.create({ ...v, parentId: folder?.id ?? null }); toast.success('สร้างโฟลเดอร์แล้ว'); void useData.getState().loadTree(); void reload(true); }} />
       {folder && <ShareDialog open={share} onClose={() => setShare(false)} target={{ type: 'folder', id: folder.id, name: folder.name }} />}

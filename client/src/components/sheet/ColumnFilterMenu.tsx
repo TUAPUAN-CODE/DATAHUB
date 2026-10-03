@@ -175,10 +175,12 @@ export function ColumnFilterMenu({ open, onClose, anchor, sheetId, column, filte
   );
 }
 
-export function FilterBar({ columns, filters, sorts, onOpen, onClearFilters, onRemoveSort }: {
-  columns: Column[]; filters: ColumnFilter[]; sorts: SortSpec[]; onOpen: (colId: string, el: HTMLElement) => void; onClearFilters: () => void; onRemoveSort: (colId: string) => void;
+export function FilterBar({ columns, allColumns, filters, sorts, onOpen, onClearFilters, onRemoveSort, onConfigure }: {
+  columns: Column[]; allColumns?: Column[]; filters: ColumnFilter[]; sorts: SortSpec[]; onOpen: (colId: string, el: HTMLElement) => void; onClearFilters: () => void; onRemoveSort: (colId: string) => void;
+  /** managers: choose which columns get a button (shown only when given) */ onConfigure?: () => void;
 }) {
-  const name = (id: string) => columns.find((c) => c.id === id)?.name ?? id;
+  const name = (id: string) => (allColumns ?? columns).find((c) => c.id === id)?.name ?? id;
+  const hiddenCount = (allColumns?.length ?? columns.length) - columns.length;
   return (
     <div className="flex items-center gap-2 border-b border-line px-3 py-2">
       <span className="shrink-0 text-xs font-medium text-muted">กรอง / เรียง</span>
@@ -199,6 +201,12 @@ export function FilterBar({ columns, filters, sorts, onOpen, onClearFilters, onR
           );
         })}
       </div>
+      {onConfigure && (
+        <button onClick={onConfigure} title="เลือกคอลัมน์ที่จะแสดงเป็นปุ่มกรอง/เรียงของชีตนี้" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 text-xs text-muted hover:border-primary/50 hover:text-primary">
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
+          ตั้งค่าแถบนี้{hiddenCount > 0 && <span className="rounded bg-ink/10 px-1 text-[10px]">ซ่อน {hiddenCount}</span>}
+        </button>
+      )}
       {(sorts.length > 0 || filters.length > 0) && (
         <div className="flex shrink-0 items-center gap-1.5">
           {sorts.map((s, i) => (

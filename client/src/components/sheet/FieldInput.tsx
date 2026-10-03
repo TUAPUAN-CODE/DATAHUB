@@ -4,17 +4,24 @@ import { fromLocalInput, toLocalInput } from '@/lib/format';
 import type { CellValue, Column } from '@/types';
 import { TextArea, TextInput, Toggle } from '../ui/Inputs';
 import { SearchSelect } from '../ui/SearchSelect';
+import { useLookupOptions } from '@/lib/lookup';
+import { DocNumberField } from './DocNumberField';
+import { ImagePicker, toUrls } from './ImageCell';
 
-type Col = Pick<Column, 'dataType' | 'options' | 'placeholder' | 'validation' | 'name'>;
+type Col = Pick<Column, 'dataType' | 'options' | 'placeholder' | 'validation' | 'name'> & Partial<Pick<Column, 'id' | 'sheetId' | 'isRequired'>>;
 
 /** Form input for one typed value (row form, default values, filters) */
-export function FieldInput({ col, value, onChange, invalid, autoFocus }: {
-  col: Col; value: CellValue | undefined; onChange: (v: CellValue) => void; invalid?: boolean; autoFocus?: boolean;
+export function FieldInput({ col, value, onChange, invalid, autoFocus, rowValues }: {
+  col: Col; value: CellValue | undefined; onChange: (v: CellValue) => void; invalid?: boolean; autoFocus?: boolean; rowValues?: Record<string, CellValue | undefined>;
 }) {
   const ph = col.placeholder ?? undefined;
+  const lk = useLookupOptions(col.id && col.sheetId ? (col as Column) : null, rowValues ?? {});
+  const options = lk.isLookup ? (lk.options ?? []).map((v) => ({ value: v, label: v, color: null as string | null })) : col.options ?? [];
+  const showEmpty = !col.isRequired && col.validation?.allowEmpty !== false;
+  const emptyHint = lk.isLookup ? (lk.loading ? 'กำลังโหลดตัวเลือก…' : lk.needsParent ? 'เลือกคอลัมน์ที่เชื่อมโยงก่อน' : !options.length ? 'ไม่มีตัวเลือกในตารางต้นทาง' : null) : null;
   switch (col.dataType) {
     case 'text':
-      return <TextArea rows={3} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={ph} invalid={invalid} autoFocus={autoFocus} />;
+      return <TextArea rows={3} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={ph} invalid={invalid} autoFocus={autoFocus} maxLength={col.validation?.maxLength ?? undefined} />;
     case 'int':
     case 'float':
       return <TextInput inputMode="decimal" value={value === null || value === undefined ? '' : String(value)} placeholder={ph ?? (col.dataType === 'int' ? '0' : '0.00')}
@@ -28,14 +35,19 @@ export function FieldInput({ col, value, onChange, invalid, autoFocus }: {
     case 'select':
       return (
         <SearchSelect value={(value as string) ?? null} onChange={(v) => onChange(v)} placeholder={ph ?? 'เลือก…'} className={invalid ? '!border-danger' : ''}
-          options={[{ value: '', label: '— ไม่ระบุ —' }, ...(col.options ?? []).map((o) => ({ value: o.value, label: o.label, color: o.color }))]} />
+          options={[...(showEmpty ? [{ value: '', label: '— ไม่ระบุ —' }] : []), ...options.map((o) => ({ value: o.value, label: o.label, color: o.color }))]}
+          renderValue={emptyHint && !value ? () => <span className="text-muted">{emptyHint}</span> : undefined} />
       );
+    case 'doc_number':
+      return <DocNumberField col={col} value={value} onChange={onChange} rowValues={rowValues} invalid={invalid} />;
+    case 'image':
+      return <ImagePicker urls={toUrls(value)} onChange={(u) => onChange(u.length ? u : null)} max={col.validation?.maxSelections ?? 200} columns={4} />;
     case 'multi_select': {
       const arr = Array.isArray(value) ? value : [];
       const max = col.validation?.maxSelections ?? Infinity;
       return (
         <div className={cn('ds-input flex min-h-10 flex-wrap gap-1.5 p-1.5', invalid && '!border-danger')}>
-          {(col.options ?? []).map((o) => {
+          {options.map((o) => {
             const on = arr.includes(o.value);
             return (
               <button key={o.value} type="button" disabled={!on && arr.length >= max}
@@ -46,12 +58,12 @@ export function FieldInput({ col, value, onChange, invalid, autoFocus }: {
               </button>
             );
           })}
-          {!col.options?.length && <span className="px-2 py-1 text-xs text-muted">ยังไม่มีตัวเลือก</span>}
+          {!options.length && <span className="px-2 py-1 text-xs text-muted">{emptyHint ?? 'ยังไม่มีตัวเลือก'}</span>}
         </div>
       );
     }
     default:
       return <TextInput type={col.dataType === 'email' ? 'email' : col.dataType === 'url' ? 'url' : 'text'} value={(value as string) ?? ''} placeholder={ph}
-        onChange={(e) => onChange(e.target.value)} invalid={invalid} autoFocus={autoFocus} />;
+        onChange={(e) => onChange(e.target.value)} invalid={invalid} autoFocus={autoFocus} maxLength={col.validation?.maxLength ?? undefined} />;
   }
 }

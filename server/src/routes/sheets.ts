@@ -7,8 +7,10 @@ import { mapColumn, mapSheet } from '../shared/mappers';
 import { LV, levelName, requireFile, requireSheet } from '../shared/permissions';
 import { loadColumns } from '../services/cellWriter';
 import { assertUniqueNames, insertColumn } from '../services/structure';
-import { sheetInput } from '../shared/schemas';
+import { filterSchema, sheetInput, sortSchema } from '../shared/schemas';
 import { copySheet } from './files';
+import { syncUnionIfStale, unionStatus } from '../services/union';
+import { runColumnDecorators } from '../services/hooks';
 
 const router = Router();
 
@@ -30,12 +32,18 @@ router.get(
     const { sheet, level } = await requireSheet(req.user!, id, LV.read);
     const cols = await loadColumns(id, null, level >= LV.manage);
     const prefsRow = await q1(`SELECT prefs_json FROM UserSheetPrefs WHERE user_id = @u AND sheet_id = @s`, { u: T.uuid(req.user!.id), s: T.uuid(id) });
+    const union = await unionStatus(sheet);
+    if (union) syncUnionIfStale(sheet);
+    const columnsOut = cols.filter((c) => !c.is_deleted).map(mapColumn);
+    if (level >= LV.manage) await runColumnDecorators({ user: req.user!, sheetId: id, columns: columnsOut as { id: string; validation: Record<string, any> }[] });
     ok(res, {
+      union,
+      settings: safeJson(sheet.settings_json, {}) ?? {},
       sheet: mapSheet(sheet),
       file: { id: sheet.file_id, name: sheet.file_name, folderId: sheet.folder_id },
       level,
       permission: levelName(level),
-      columns: cols.filter((c) => !c.is_deleted).map(mapColumn),
+      columns: columnsOut,
       deletedColumns: cols.filter((c) => c.is_deleted).map(mapColumn),
       prefs: { ...DEFAULT_PREFS, ...safeJson(prefsRow?.prefs_json, {}) },
     });
@@ -57,6 +65,7 @@ router.put(
         hiddenCols: z.array(z.string().max(60)).max(500).optional(),
         rowHeight: z.number().min(20).max(200).optional(),
         pageSize: z.number().int().min(10).max(1000).optional(),
+        query: z.object({ sorts: z.array(sortSchema).max(5), filters: z.array(filterSchema).max(50) }).optional(),
       }),
       req.body,
     );
@@ -105,11 +114,25 @@ router.post(
   }),
 );
 
+/** Sheet-level settings (managers): which columns get a button in the filter / sort bar above the table */
+router.put(
+  '/sheets/:id/settings',
+  ah(async (req, res) => {
+    const id = pid(req);
+    const { sheet } = await requireSheet(req.user!, id, LV.manage, undefined, true);
+    const body = parse(z.object({ filterColumns: z.array(zId).max(1000).nullable() }), req.body);
+    const settings = { ...(safeJson<Record<string, unknown>>(sheet.settings_json, {}) ?? {}), filterColumns: body.filterColumns };
+    await q(`UPDATE Sheets SET settings_json = @j, updated_at = SYSUTCDATETIME() WHERE sheet_id = @s`, { j: T.text(JSON.stringify(settings)), s: T.uuid(id) });
+    await audit({ userId: req.user!.id, action: 'sheet_update', entityType: 'sheet', entityId: id, fileId: sheet.file_id, sheetId: id, newValue: { filterColumns: body.filterColumns?.length ?? 'all' } }, req);
+    ok(res, { saved: true, settings });
+  }),
+);
+
 router.put(
   '/sheets/:id',
   ah(async (req, res) => {
     const id = pid(req);
-    const { sheet } = await requireSheet(req.user!, id, LV.manage);
+    const { sheet } = await requireSheet(req.user!, id, LV.manage, undefined, true);
     const body = parse(z.object({ name: z.string().trim().min(1).max(200).optional(), tabColor: zColor.nullish() }), req.body);
     if (body.name && body.name !== sheet.sheet_name) {
       const exists = await q1(`SELECT 1 AS x FROM Sheets WHERE file_id = @f AND is_deleted = 0 AND sheet_name = @n AND sheet_id <> @s`,
@@ -145,7 +168,7 @@ router.delete(
   '/sheets/:id',
   ah(async (req, res) => {
     const id = pid(req);
-    const { sheet } = await requireSheet(req.user!, id, LV.manage);
+    const { sheet } = await requireSheet(req.user!, id, LV.manage, undefined, true);
     const count = await q1(`SELECT COUNT(*) AS n FROM Sheets WHERE file_id = @f AND is_deleted = 0`, { f: T.uuid(sheet.file_id) });
     if (Number(count?.n) <= 1) throw badRequest('ไฟล์ต้องมีอย่างน้อย 1 ชีต');
     await q(`UPDATE Sheets SET is_deleted = 1, updated_at = SYSUTCDATETIME() WHERE sheet_id = @s`, { s: T.uuid(id) });

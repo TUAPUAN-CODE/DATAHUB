@@ -25,6 +25,8 @@ export const env = {
     password: process.env.DB_PASSWORD ?? '',
     encrypt: bool(process.env.DB_ENCRYPT, false),
     trustServerCertificate: bool(process.env.DB_TRUST_CERT, true),
+    /** Always On: DB_HOST = the AG listener name; this makes the driver try every replica IP at once and use the one that is primary */
+    multiSubnetFailover: bool(process.env.DB_MULTI_SUBNET_FAILOVER, false),
     poolMin: num(process.env.DB_POOL_MIN, 2),
     poolMax: num(process.env.DB_POOL_MAX, 30),
   },
@@ -42,7 +44,22 @@ export const env = {
   rateLimitPerMin: num(process.env.RATE_LIMIT_PER_MIN, 600),
   showLockedItems: bool(process.env.SHOW_LOCKED_ITEMS, true),
   uploadDir: process.env.UPLOAD_DIR ?? 'uploads',
-  maxUploadMb: num(process.env.MAX_UPLOAD_MB, 5),
+  maxUploadMb: num(process.env.MAX_UPLOAD_MB, 15),
   trashRetentionDays: num(process.env.TRASH_RETENTION_DAYS, 30),
   serveClientDir: process.env.SERVE_CLIENT_DIR || '',
+  /** Public base URL of the app (used for OAuth redirect URIs). Falls back to the request host. */
+  publicUrl: (process.env.PUBLIC_URL ?? '').replace(/\/+$/, ''),
+  oauth: {
+    google: { clientId: process.env.GOOGLE_CLIENT_ID ?? '', clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '' },
+    microsoft: {
+      clientId: process.env.MS_CLIENT_ID ?? '',
+      clientSecret: process.env.MS_CLIENT_SECRET ?? '',
+      /** common | organizations | consumers | <tenant id or domain> */
+      tenant: process.env.MS_TENANT ?? 'common',
+    },
+    /** Create an account (role: user) on first social login. Default: only people an admin already added by e-mail may sign in. */
+    autoCreate: bool(process.env.OAUTH_AUTO_CREATE, false),
+    /** Comma separated e-mail domains that may use social login (empty = any) */
+    allowedDomains: (process.env.OAUTH_ALLOWED_DOMAINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+  },
 };
