@@ -39,7 +39,9 @@ export function useSheetView(sheetId: string | null) {
     try {
       const d = await sheetsApi.get(sheetId);
       setDetail(d);
-      setPrefsState({ ...DEFAULT_PREFS, ...d.prefs });
+      // a phone draws far slower than a PC: when nobody chose a page size yet (server default 100) start with 50 rows
+      const phone = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+      setPrefsState({ ...DEFAULT_PREFS, ...d.prefs, ...(phone && (d.prefs?.pageSize ?? 100) === 100 ? { pageSize: 50 } : {}) });
       if (restoreQuery.current) {
         restoreQuery.current = false;
         const ids = new Set(d.columns.map((c) => c.id.toLowerCase()));

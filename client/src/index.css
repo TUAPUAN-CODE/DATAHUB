@@ -98,5 +98,7 @@ body {
 
 @keyframes rowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .row-in { animation: rowIn .28s ease-out both; }
+/* phones: no per-row entrance animation on every reload (hundreds of simultaneous animations make low-end phones stutter) */
+@media (max-width: 768px), (prefers-reduced-motion: reduce) { .row-in { animation: none; } .cell-flash { animation-duration: .6s; } }
 @keyframes cellFlash { 0% { background-color: rgb(var(--c-primary) / .22); } 100% { background-color: transparent; } }
 .cell-flash { animation: cellFlash 1.4s ease-out; }

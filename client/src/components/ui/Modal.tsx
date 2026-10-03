@@ -24,7 +24,7 @@ export function Modal({
       {open && (
         <motion.div className="fixed inset-0 z-[900] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-6"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px]" onClick={onClose} />
+          <div className="fixed inset-0 bg-slate-900/40" onClick={onClose} />
           <motion.div role="dialog" aria-modal="true"
             className={cn('ds-modal relative my-6 flex w-full flex-col', SIZES[size], className)}
             initial={{ opacity: 0, y: 14, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.98 }}
