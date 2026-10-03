@@ -57,7 +57,13 @@ export interface ScanVerify { sheetId: string; refKeyColumnId: string; checkColu
 export interface MixCfg { deductColumnId: string; keyColumnId?: string | null; inheritColumnIds?: string[] | null; sameColumnIds?: string[] | null }
 export interface LinesCfg { lineSheetId: string; displayColumnIds?: string[] | null; actions?: { label: string; columnId: string; kind: 'now' | 'value'; value?: string | null }[] | null }
 export interface FormLayout { perRow: number; fields: { columnId: string; span?: number; hidden?: boolean }[] }
-export interface SheetSettings { filterColumns?: string[] | null; scanProfiles?: ScanProfile[]; mix?: MixCfg; lines?: LinesCfg; formLayout?: FormLayout }
+export interface TimeLinkCfg {
+  id: string; name: string; targetSheetId: string;
+  aStartColumnId: string; aEndColumnId?: string | null; aKeyColumnId?: string | null;
+  bStartColumnId: string; bEndColumnId?: string | null; bKeyColumnId?: string | null;
+  toleranceMin?: number | null; windowHours?: number | null;
+}
+export interface SheetSettings { timeLinks?: TimeLinkCfg[]; filterColumns?: string[] | null; scanProfiles?: ScanProfile[]; mix?: MixCfg; lines?: LinesCfg; formLayout?: FormLayout }
 export interface SheetDetail {
   union?: UnionStatus | null;
   settings?: SheetSettings;

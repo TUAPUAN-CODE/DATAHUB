@@ -1,9 +1,14 @@
-import { get, post } from '@/api/client';
+import { get, post, put } from '@/api/client';
+import type { TimeLinkCfg } from '@/api/endpoints';
 
 export interface TraceNode { rowId: string; rowNo: number; sheetId: string; sheetName: string; fileId: string; fileName: string; createdAt: string; restricted: boolean; label: string | null; fields: { name: string; type: string; value: string }[] }
 export interface TraceLink { id: number; parent: string; child: string; qty: number | null; role: string; lvl: number; dir: 'back' | 'forward' }
 export interface TraceData { startRowId: string; nodes: TraceNode[]; links: TraceLink[]; truncated: boolean }
+export interface TimeMatch extends Partial<TraceNode> { rowId: string; start: string; end: string | null; overlapMin: number }
+export interface TimeGroup { linkId: string; name: string; reverse: boolean; restricted: boolean; noTime: boolean; noKey: boolean; other: { sheetId: string; sheetName: string; fileId: string; fileName: string }; matches: TimeMatch[] }
 export const traceApi = {
+  saveTimeLinks: (sheetId: string, links: TimeLinkCfg[]) => put(`/sheets/${sheetId}/time-links`, { links }),
+  timeLinks: (rowId: string) => get<{ groups: TimeGroup[] }>(`/trace/time/rows/${rowId}`),
   find: (sheetId: string, columnId: string, value: string) => post<{ rowId: string; rowNo: number }>(`/sheets/${sheetId}/find`, { columnId, value }),
   trace: (rowId: string, dir: 'back' | 'forward' | 'both', depth = 8) => get<TraceData>(`/trace/rows/${rowId}`, { dir, depth }),
 };

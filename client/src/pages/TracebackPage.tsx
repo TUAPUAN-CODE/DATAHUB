@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Field, Segmented, Select, TextInput } from '@/components/ui/Inputs';
 import { EmptyState, PageHeader } from '@/components/ui/misc';
 import { FilePicker, PickedFile } from '@/components/files/FilePicker';
-import { levelsOf, traceApi, TraceData, TraceNode } from '@/modules/trace/api';
+import { levelsOf, traceApi, TimeGroup, TraceData, TraceNode } from '@/modules/trace/api';
 import { TraceGraph } from '@/modules/trace/TraceGraph';
 
 const msg = (e: unknown) => (e as { response?: { data?: { error?: { message?: string } } }; message?: string }).response?.data?.error?.message ?? (e as Error).message;
@@ -29,6 +29,7 @@ export default function TracebackPage() {
   const [sel, setSel] = useState<TraceNode | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [timeGroups, setTimeGroups] = useState<TimeGroup[] | null>(null);
 
   useEffect(() => { if (file) void filesApi.get(file.id).then((r) => setSheets(r.sheets)).catch(() => setSheets([])); }, [file]);
   useEffect(() => {
@@ -51,6 +52,14 @@ export default function TracebackPage() {
     setBusy(true); setErr('');
     try { const f = await traceApi.find(sheetId, colId, value.trim()); await run(f.rowId); } catch (e) { setErr(msg(e)); setData(null); setBusy(false); }
   };
+  // rows of other tables linked to the selected row by time (set per sheet in "ตั้งค่าสแกน/ผสม › เชื่อมตามเวลา")
+  useEffect(() => {
+    setTimeGroups(null);
+    if (!sel || sel.restricted) return;
+    let live = true;
+    void traceApi.timeLinks(sel.rowId).then((r) => live && setTimeGroups(r.groups)).catch(() => live && setTimeGroups([]));
+    return () => { live = false; };
+  }, [sel?.rowId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const r = sp.get('row'); if (r && !data) void run(r); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const csv = () => {
@@ -100,6 +109,39 @@ export default function TracebackPage() {
               ) : <p className="text-muted">กดที่กล่องเพื่อดูรายละเอียด</p>}
             </div>
           </div>
+          {!!timeGroups?.length && (
+            <div className="ds-card space-y-3 p-4">
+              <p className="text-base font-semibold">เชื่อมตามช่วงเวลา — {sel?.label ?? `แถว #${sel?.rowNo}`}</p>
+              {timeGroups.map((g) => (
+                <div key={`${g.linkId}-${g.reverse}`} className="space-y-1.5">
+                  <p className="text-sm font-medium">{g.name} <span className="text-xs font-normal text-muted">→ {g.other.fileName} › {g.other.sheetName}</span></p>
+                  {g.restricted ? <p className="text-sm text-muted">ไม่มีสิทธิ์ดูตารางนี้</p>
+                    : g.noTime ? <p className="text-sm text-muted">แถวนี้ยังไม่มีเวลาเริ่ม จึงเชื่อมไม่ได้</p>
+                    : g.noKey ? <p className="text-sm text-muted">แถวนี้ยังไม่มีค่าที่ใช้จับคู่ (เช่น ไลน์) จึงเชื่อมไม่ได้</p>
+                    : !g.matches.length ? <p className="text-sm text-muted">ไม่พบแถวที่ช่วงเวลาซ้อนกัน</p>
+                    : (
+                      <div className="overflow-x-auto rounded-lg border border-line">
+                        <table className="w-full text-sm">
+                          <thead><tr className="bg-ink/5 text-left text-xs text-muted"><th className="px-3 py-1.5">แถว</th><th className="px-3 py-1.5">ชื่อ/รหัส</th><th className="px-3 py-1.5">เริ่ม</th><th className="px-3 py-1.5">สิ้นสุด</th><th className="px-3 py-1.5 text-right">ซ้อนกัน (นาที)</th><th /></tr></thead>
+                          <tbody>
+                            {g.matches.map((m) => (
+                              <tr key={m.rowId} className="border-t border-line">
+                                <td className="px-3 py-1.5">#{m.rowNo}</td>
+                                <td className="px-3 py-1.5">{m.label ?? ''}<span className="ml-2 text-xs text-muted">{(m.fields ?? []).slice(0, 2).map((f) => `${f.name}: ${f.value}`).join(' · ')}</span></td>
+                                <td className="px-3 py-1.5 whitespace-nowrap">{new Date(m.start).toLocaleString('th-TH')}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap">{m.end ? new Date(m.end).toLocaleString('th-TH') : 'ยังไม่จบ'}</td>
+                                <td className="px-3 py-1.5 text-right tabular-nums">{m.overlapMin}</td>
+                                <td className="px-2 text-right"><button type="button" className="text-xs text-primary hover:underline" onClick={() => void run(m.rowId)}>ย้อนรอยจากแถวนี้</button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ) : !err && <EmptyState icon={<GitFork />} title="เลือกไฟล์ ชีต และค้นหาค่า" description="เช่น mapping_id ของล็อตที่ผสม หรือรหัสรถเข็น" />}
     </div>
