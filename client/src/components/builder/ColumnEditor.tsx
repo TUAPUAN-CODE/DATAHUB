@@ -119,12 +119,13 @@ function ColumnDetails({ c, set, siblings, fileId, fileName, sheetId }: { c: Col
         <>
           <Field label="ค่าต่ำสุด"><TextInput inputMode="decimal" value={v.min ?? ''} onChange={(e) => setV({ min: num(e.target.value) })} /></Field>
           <Field label="ค่าสูงสุด"><TextInput inputMode="decimal" value={v.max ?? ''} onChange={(e) => setV({ max: num(e.target.value) })} /></Field>
+          <Field label="จำนวนหลักสูงสุด" hint="ไม่นับเครื่องหมาย/จุดทศนิยม/ลูกน้ำ — ใช้กับการพิมพ์ สแกน และนำเข้า"><TextInput inputMode="numeric" value={v.maxDigits ?? ''} onChange={(e) => setV({ maxDigits: num(e.target.value) })} /></Field>
           {c.dataType === 'float' && <Field label="จำนวนทศนิยม"><TextInput inputMode="numeric" value={v.decimals ?? ''} onChange={(e) => setV({ decimals: num(e.target.value) })} /></Field>}
         </>
       )}
       {(c.dataType === 'varchar' || c.dataType === 'text') && (
         <>
-          <Field label="ความยาวสูงสุด (ตัวอักษร)"><TextInput inputMode="numeric" value={v.maxLength ?? ''} onChange={(e) => setV({ maxLength: num(e.target.value) })} /></Field>
+          <Field label="ความยาวสูงสุด (ตัวอักษร)" hint="ค่าที่สแกนหรือนำเข้ามายาวเกินจะถูกปฏิเสธ"><TextInput inputMode="numeric" value={v.maxLength ?? ''} onChange={(e) => setV({ maxLength: num(e.target.value) })} /></Field>
           <Field label="รูปแบบ (Regex)" hint="เช่น ^PF\d-\d{2}$"><TextInput value={v.pattern ?? ''} onChange={(e) => setV({ pattern: e.target.value || null })} className="font-mono" /></Field>
           {v.pattern && <Field label="ข้อความเมื่อรูปแบบไม่ถูกต้อง"><TextInput value={v.patternMessage ?? ''} onChange={(e) => setV({ patternMessage: e.target.value })} /></Field>}
         </>

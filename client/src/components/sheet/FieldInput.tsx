@@ -21,7 +21,7 @@ export function FieldInput({ col, value, onChange, invalid, autoFocus, rowValues
   const emptyHint = lk.isLookup ? (lk.loading ? 'กำลังโหลดตัวเลือก…' : lk.needsParent ? 'เลือกคอลัมน์ที่เชื่อมโยงก่อน' : !options.length ? 'ไม่มีตัวเลือกในตารางต้นทาง' : null) : null;
   switch (col.dataType) {
     case 'text':
-      return <TextArea rows={3} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={ph} invalid={invalid} autoFocus={autoFocus} />;
+      return <TextArea rows={3} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={ph} invalid={invalid} autoFocus={autoFocus} maxLength={col.validation?.maxLength ?? undefined} />;
     case 'int':
     case 'float':
       return <TextInput inputMode="decimal" value={value === null || value === undefined ? '' : String(value)} placeholder={ph ?? (col.dataType === 'int' ? '0' : '0.00')}
@@ -64,6 +64,6 @@ export function FieldInput({ col, value, onChange, invalid, autoFocus, rowValues
     }
     default:
       return <TextInput type={col.dataType === 'email' ? 'email' : col.dataType === 'url' ? 'url' : 'text'} value={(value as string) ?? ''} placeholder={ph}
-        onChange={(e) => onChange(e.target.value)} invalid={invalid} autoFocus={autoFocus} />;
+        onChange={(e) => onChange(e.target.value)} invalid={invalid} autoFocus={autoFocus} maxLength={col.validation?.maxLength ?? undefined} />;
   }
 }

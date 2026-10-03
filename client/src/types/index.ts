@@ -28,7 +28,7 @@ export interface FileItem {
 export type DataType = 'varchar' | 'text' | 'int' | 'float' | 'date' | 'datetime' | 'boolean' | 'select' | 'multi_select' | 'url' | 'email' | 'image' | 'doc_number';
 export interface SelectOption { value: string; label: string; color?: string | null }
 export interface Validation {
-  min?: number | null; max?: number | null; decimals?: number | null; maxLength?: number | null; pattern?: string | null;
+  min?: number | null; max?: number | null; decimals?: number | null; maxLength?: number | null; maxDigits?: number | null; pattern?: string | null;
   patternMessage?: string | null; minDate?: string | null; maxDate?: string | null; maxSelections?: number | null;
   /** select columns: offer the "— ไม่ระบุ —" choice (default true, never for required columns) */
   allowEmpty?: boolean | null;

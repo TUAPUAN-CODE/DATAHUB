@@ -14,6 +14,7 @@ export const validationSchema = z
     max: z.number().nullish(),
     decimals: z.number().int().min(0).max(10).nullish(),
     maxLength: z.number().int().min(1).max(20000).nullish(),
+    maxDigits: z.number().int().min(1).max(30).nullish(),
     pattern: z.string().max(500).nullish(),
     patternMessage: z.string().max(200).nullish(),
     minDate: z.string().max(30).nullish(),

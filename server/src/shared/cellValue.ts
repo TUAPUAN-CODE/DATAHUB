@@ -29,6 +29,8 @@ export interface Validation {
   max?: number | null;
   decimals?: number | null;
   maxLength?: number | null;
+  /** numbers: at most this many digits (sign, decimal point and thousands separators are not counted) — applies to typing, scanning and import alike */
+  maxDigits?: number | null;
   pattern?: string | null;
   patternMessage?: string | null;
   minDate?: string | null;
@@ -225,6 +227,10 @@ export function normalizeValue(col: ColumnDef, raw: unknown, opts: { skipRequire
     case 'float': {
       let n = parseNumber(raw);
       if (n === null) return fail(`"${name}" ต้องเป็นตัวเลข`);
+      if (v.maxDigits) {
+        const digits = (typeof raw === 'string' ? raw : String(n)).replace(/[^0-9]/g, '').length;
+        if (digits > v.maxDigits) return fail(`"${name}" ต้องไม่เกิน ${v.maxDigits} หลัก`);
+      }
       if (col.data_type === 'int') {
         if (!Number.isInteger(n)) return fail(`"${name}" ต้องเป็นจำนวนเต็ม`);
         if (!Number.isSafeInteger(n)) return fail(`"${name}" มีค่าเกินขอบเขตที่รองรับ`);
