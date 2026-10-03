@@ -73,6 +73,19 @@ router.post('/sheets/:id/scan/preview', ah(async (req, res) => {
   ok(res, { profile: { id: profile.id, name: profile.name }, ...parseScan(body.text, profile as ScanProfile) });
 }));
 
+/** Only reads: which format fits the text and which column gets which value (including the values copied from the verify sheet). Nothing is written. */
+export async function resolveScan(sheetId: string, text: string, profileId?: string | null): Promise<{ profile: ScanProfile; values: Record<string, string> }> {
+  const profiles = await loadProfiles(sheetId);
+  if (!profiles.length) throw badRequest('ชีตนี้ยังไม่ได้ตั้งค่ารูปแบบ QR (ผู้จัดการตั้งได้ที่ปุ่ม ตั้งค่าสแกน/ผสม)');
+  const profile = profileId ? profiles.find((p) => p.id === profileId) ?? null : detectProfile(text, profiles);
+  if (!profile) throw badRequest('ข้อความที่สแกนไม่ตรงกับรูปแบบ QR ที่ตั้งไว้', { text: text.slice(0, 200) });
+  const { values: scanned } = parseScan(text, profile);
+  if (!Object.keys(scanned).length) throw badRequest(`รูปแบบ “${profile.name}”: ไม่พบข้อมูลในตำแหน่งที่กำหนด`);
+  const values: Record<string, string> = { ...scanned };
+  if (profile.verify) Object.assign(values, await verifyAgainst(profile, scanned, await loadColumns(sheetId)));
+  return { profile, values };
+}
+
 /** Scan core, shared with other modules (line items of a trolley, devices): pick the format, split the text, create / update the row */
 export type ScanOutcome = { action: 'created' | 'updated' | 'ignored'; rowId: string; rowNo: number; profile: { id: string; name: string }; stamped?: string };
 
@@ -157,6 +170,15 @@ export async function runScan(u: AuthUser, sheet: { file_id: string }, sheetId: 
   const made = await create(stamps.length ? { [stamps[0]]: now } : {});
   return { action: 'created', rowId: made.rowId, rowNo: made.rowNo, profile: prof, stamped: stamps.length ? colName(stamps[0]) : undefined };
 }
+
+/** Fills the "add row" form: the same reading as a scan (format + check against the other sheet) but nothing is saved */
+router.post('/sheets/:id/scan/resolve', ah(async (req, res) => {
+  const sheetId = pid(req);
+  await requireSheet(req.user!, sheetId, LV.write);
+  const body = parse(z.object({ text: z.string().min(1).max(2000), profileId: z.string().max(40).nullish() }), req.body);
+  const r = await resolveScan(sheetId, body.text, body.profileId);
+  ok(res, { profile: { id: r.profile.id, name: r.profile.name }, values: r.values });
+}));
 
 /** A scan from the scan box */
 router.post('/sheets/:id/scan', ah(async (req, res) => {

@@ -10,7 +10,11 @@ export const linesApi = {
   remove: (sheetId: string, rowId: string, lineRowId: string) => del(`/sheets/${sheetId}/rows/${rowId}/lines/${lineRowId}`),
   action: (sheetId: string, rowId: string, index: number) => post<{ count: number }>(`/sheets/${sheetId}/rows/${rowId}/lines/action`, { index }),
 };
+export const formLayoutApi = {
+  save: (sheetId: string, layout: import('@/api/endpoints').FormLayout | null) => put(`/sheets/${sheetId}/form-layout`, { layout }),
+};
 export const scanApi = {
+  resolve: (sheetId: string, text: string) => post<{ profile: { id: string; name: string }; values: Record<string, string> }>(`/sheets/${sheetId}/scan/resolve`, { text }),
   saveProfiles: (sheetId: string, profiles: ScanProfile[]) => put(`/sheets/${sheetId}/scan/profiles`, { profiles }),
   scan: (sheetId: string, text: string, profileId?: string | null) => post<ScanResult>(`/sheets/${sheetId}/scan`, { text, profileId: profileId || null }),
   saveMix: (sheetId: string, mix: MixCfg | null) => put(`/sheets/${sheetId}/mix/settings`, { mix }),

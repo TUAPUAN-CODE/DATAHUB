@@ -305,6 +305,7 @@ export default function FilePage() {
             onApply={(flt) => filterCol && view.setQuery({ filters: [...view.query.filters.filter((x) => x.columnId !== filterCol.id), ...(flt ? [flt] : [])] })}
             onSort={(sorts) => view.setQuery({ sorts })} />
           <RowFormModal open={!!rowForm} onClose={() => setRowForm(null)} columns={view.allColumns} row={rowForm?.row ?? null} users={view.users} canWrite={canWrite}
+            sheetId={sheetId} settings={view.detail.settings} canManage={canManage && !union} onLayoutSaved={() => void view.loadDetail()}
             onCreate={(values) => view.addRow(values)}
             onSave={(changes) => view.commit(changes.map((c) => ({ ...c, rowId: rowForm!.row!.id })), { partial: true })} />
           <RowViewModal row={rowView} rows={view.rows} columns={view.columns} users={view.users} onClose={() => setRowView(null)} onNavigate={setRowView}
