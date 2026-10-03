@@ -1,3 +1,4 @@
+import { broadcast, onBroadcast } from '../services/cluster';
 import { env } from '../config/env';
 import { q, q1, Tx } from '../config/db';
 import { AuthUser } from '../middleware/auth';
@@ -39,8 +40,10 @@ export interface FolderIndex {
 }
 
 let folderCache: { at: number; index: FolderIndex } | null = null;
+onBroadcast('folders', () => { folderCache = null; });
 export const invalidateFolders = () => {
   folderCache = null;
+  broadcast('folders');
 };
 
 export async function getFolderIndex(): Promise<FolderIndex> {

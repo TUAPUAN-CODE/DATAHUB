@@ -1,5 +1,5 @@
 import { q1, T } from '../config/db';
-import { env } from '../config/env';
+import { broadcast, onBroadcast } from './cluster';
 
 /**
  * Counting the rows of a big sheet on every page load is the most expensive part of paging (the table is scanned each time).
@@ -9,10 +9,12 @@ const CACHE_FROM = 50_000;
 const TTL_MS = 20_000;
 const cache = new Map<string, { at: number; total: number; sheet: string }>();
 
-export const invalidateRowCount = (sheetId: string) => {
+const dropLocal = (sheetId: string) => {
   const s = sheetId.toLowerCase();
   for (const [k, v] of cache) if (v.sheet === s) cache.delete(k);
 };
+onBroadcast('rowcount', dropLocal);
+export const invalidateRowCount = (sheetId: string) => { dropLocal(sheetId); broadcast('rowcount', sheetId); };
 
 export function cachedTotal(sheetId: string, key: string): number | null {
   const hit = cache.get(`${sheetId.toLowerCase()}|${key}`);
@@ -36,4 +38,3 @@ export async function sheetRowCount(sheetId: string): Promise<number> {
 
 /** A sheet this big needs a filter before a free-text search (a LIKE '%…%' reads every cell of the table) */
 export const BIG_SHEET_ROWS = Math.max(10_000, Number(process.env.BIG_SHEET_ROWS) || 300_000);
-void env;

@@ -1,3 +1,4 @@
+import { broadcast, onBroadcast } from '../services/cluster';
 import jwt from 'jsonwebtoken';
 import { RequestHandler } from 'express';
 import { env } from '../config/env';
@@ -38,7 +39,9 @@ const CACHE_MS = 30_000;
 export function invalidateUserCache(id?: string) {
   if (id) cache.delete(id.toLowerCase());
   else cache.clear();
+  broadcast('user', id ?? '');
 }
+onBroadcast('user', (id) => { if (id) cache.delete(id.toLowerCase()); else cache.clear(); });
 
 export async function loadAuthUser(id: string): Promise<AuthUser | null> {
   const key = id.toLowerCase();

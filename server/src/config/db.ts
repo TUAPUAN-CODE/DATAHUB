@@ -1,5 +1,6 @@
 import sql from 'mssql';
 import { env } from './env';
+import { logger } from '../shared/logger';
 
 export type Tx = sql.Transaction;
 let poolPromise: Promise<sql.ConnectionPool> | null = null;
@@ -16,6 +17,7 @@ export function dbConfig(database: string = env.db.database, poolMax = env.db.po
       trustServerCertificate: env.db.trustServerCertificate,
       enableArithAbort: true,
       instanceName: env.db.instanceName,
+      multiSubnetFailover: env.db.multiSubnetFailover,
     },
     pool: { min: Math.min(env.db.poolMin, poolMax), max: poolMax, idleTimeoutMillis: 30_000 },
     requestTimeout: 120_000,
@@ -25,10 +27,17 @@ export function dbConfig(database: string = env.db.database, poolMax = env.db.po
 
 export function getPool(): Promise<sql.ConnectionPool> {
   if (poolPromise) return poolPromise;
-  const p: Promise<sql.ConnectionPool> = new sql.ConnectionPool(dbConfig())
+  const pool = new sql.ConnectionPool(dbConfig());
+  // a failover (Always On) or a restart of SQL Server breaks the open connections: forget the pool, the next request builds a new one
+  pool.on('error', (err) => {
+    logger.warn(`SQL pool error: ${err.message} — reconnecting`);
+    if (poolPromise === p) poolPromise = null;
+    void pool.close().catch(() => undefined);
+  });
+  const p: Promise<sql.ConnectionPool> = pool
     .connect()
     .catch((err) => {
-      poolPromise = null;
+      if (poolPromise === p) poolPromise = null;
       throw err;
     });
   poolPromise = p;
@@ -107,11 +116,38 @@ async function request(tx?: Tx | null) {
   return tx ? new sql.Request(tx) : (await getPool()).request();
 }
 
+/** Connection-level failures seen during an Always On failover / SQL Server restart */
+const NOT_EXECUTED = new Set([983, 4060, 40613, 40197, 40501, 10928, 10929, 18456]); // the statement never ran
+export function isTransient(err: any): boolean {
+  const code = String(err?.code ?? '');
+  const no = Number(err?.number ?? err?.originalError?.info?.number ?? 0);
+  return ['ECONNCLOSED', 'ESOCKET', 'ECONNRESET', 'ELOGIN', 'ENOTOPEN', 'EINVALIDSTATE'].includes(code) || NOT_EXECUTED.has(no);
+}
+const notExecuted = (err: any) => NOT_EXECUTED.has(Number(err?.number ?? err?.originalError?.info?.number ?? 0)) || ['ELOGIN', 'ENOTOPEN'].includes(String(err?.code ?? ''));
+export const isRead = (text: string) => /^\s*(WITH|SELECT)\b/i.test(text);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function resetPool() {
+  const p = poolPromise;
+  poolPromise = null;
+  try { (await p)?.close(); } catch { /* already gone */ }
+}
+
 export async function q<T = any>(text: string, params: Record<string, unknown> = {}, tx?: Tx | null): Promise<T[]> {
-  const req = await request(tx);
-  bind(req, params);
-  const res = await req.query(text);
-  return normalize<T>(res.recordset);
+  // outside a transaction a broken connection is retried (a few seconds is how long a failover takes); a WRITE is only retried when it certainly did not run
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const req = await request(tx);
+      bind(req, params);
+      const res = await req.query(text);
+      return normalize<T>(res.recordset);
+    } catch (err) {
+      if (tx || attempt >= 3 || !isTransient(err) || !(isRead(text) || notExecuted(err))) throw err;
+      logger.warn(`SQL transient error (${(err as any)?.code ?? (err as any)?.number}) — retry ${attempt + 1}/3`);
+      await resetPool();
+      await sleep(800 * (attempt + 1));
+    }
+  }
 }
 
 export async function q1<T = any>(text: string, params: Record<string, unknown> = {}, tx?: Tx | null): Promise<T | null> {
@@ -130,9 +166,18 @@ export async function qm(text: string, params: Record<string, unknown> = {}, tx?
 
 /** Runs fn inside a transaction. Requests inside must be awaited sequentially. */
 export async function withTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-  const pool = await getPool();
-  const tx = new sql.Transaction(pool);
-  await tx.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
+  let pool = await getPool();
+  let tx = new sql.Transaction(pool);
+  try {
+    await tx.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
+  } catch (err) {
+    if (!isTransient(err)) throw err; // beginning failed = nothing ran yet: safe to try once more on a fresh pool
+    await resetPool();
+    await sleep(1000);
+    pool = await getPool();
+    tx = new sql.Transaction(pool);
+    await tx.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
+  }
   try {
     const result = await fn(tx);
     await tx.commit();

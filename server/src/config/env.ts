@@ -25,6 +25,8 @@ export const env = {
     password: process.env.DB_PASSWORD ?? '',
     encrypt: bool(process.env.DB_ENCRYPT, false),
     trustServerCertificate: bool(process.env.DB_TRUST_CERT, true),
+    /** Always On: DB_HOST = the AG listener name; this makes the driver try every replica IP at once and use the one that is primary */
+    multiSubnetFailover: bool(process.env.DB_MULTI_SUBNET_FAILOVER, false),
     poolMin: num(process.env.DB_POOL_MIN, 2),
     poolMax: num(process.env.DB_POOL_MAX, 30),
   },

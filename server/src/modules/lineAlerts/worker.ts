@@ -106,13 +106,15 @@ async function labelValues(sheetId: string, columnIds: string[], rowIds: string[
   return out;
 }
 
-export function startLineWorker(): void {
+export function startLineWorker(): (() => void) | void {
   if (!lineEnabled()) { logger.info('LINE alerts off (LINE_CHANNEL_ACCESS_TOKEN is not set)'); return; }
   const tick = async () => {
     if (running) return;
     running = true;
     try { await runOnce(); } catch (e) { logger.error(`LINE alert pass failed: ${(e as Error).message}`); } finally { running = false; }
   };
-  setInterval(() => void tick(), lineConfig.intervalSec * 1000).unref();
+  const timer = setInterval(() => void tick(), lineConfig.intervalSec * 1000);
+  timer.unref();
   logger.info(`LINE alerts on (every ${lineConfig.intervalSec}s)`);
+  return () => clearInterval(timer);
 }

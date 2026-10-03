@@ -6,6 +6,7 @@ import { AuthUser, loadAuthUser, verifyAccessToken } from './middleware/auth';
 import { isGuid } from './shared/http';
 import { LV, requireSheet } from './shared/permissions';
 import { logger } from './shared/logger';
+import { attachCluster } from './services/cluster';
 
 let io: IOServer | null = null;
 
@@ -14,6 +15,7 @@ export function initSocket(server: http.Server) {
     cors: { origin: env.corsOrigins, credentials: true },
     path: '/socket.io',
   });
+  attachCluster(io); // with REDIS_URL: events reach people connected to the other server too
 
   io.use(async (socket, next) => {
     try {

@@ -13,6 +13,8 @@ import { errorHandler } from './middleware/error';
 import { logger } from './shared/logger';
 import { initSocket } from './socket';
 import { purgeExpiredTrash } from './services/purge';
+import { leaderTask, leaderTasks, releaseLeases } from './services/leader';
+import { NODE_ID, clusterEnabled } from './services/cluster';
 import { applyMigrations } from './scripts/migrate';
 import accessRoutes from './routes/access';
 import activityRoutes from './routes/activity';
@@ -60,7 +62,7 @@ app.use('/uploads', express.static(path.resolve(env.uploadDir), { maxAge: '7d', 
 app.get('/api/health', async (_req, res) => {
   try {
     await (await getPool()).request().query('SELECT 1 AS ok');
-    res.json({ success: true, data: { status: 'ok', db: 'up', time: new Date().toISOString() } });
+    res.json({ success: true, data: { status: 'ok', db: 'up', node: NODE_ID, cluster: clusterEnabled, runs: leaderTasks(), time: new Date().toISOString() } });
   } catch {
     res.status(503).json({ success: false, error: { code: 'DB_DOWN', message: 'Database unavailable' } });
   }
@@ -100,10 +102,11 @@ getPool()
     server.listen(env.port, '0.0.0.0', () =>
       logger.info(`DataSheet Pro API listening on http://0.0.0.0:${env.port} (LAN: http://172.48.0.116:${env.port})`)
     );
-    void purgeExpiredTrash();
-    startLineWorker();
-    startGateway();
-    setInterval(() => void purgeExpiredTrash(), 6 * 3600_000).unref();
+    // jobs that must run on ONE server: whoever holds the lease runs them, another server takes over if it stops (see services/leader.ts)
+    leaderTask('trash-purge', () => { void purgeExpiredTrash(); const t = setInterval(() => void purgeExpiredTrash(), 6 * 3600_000); return () => clearInterval(t); });
+    leaderTask('line-alerts', startLineWorker);
+    leaderTask('rfid-gateway', startGateway);
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => void releaseLeases().finally(() => process.exit(0)));
   })
   .catch((err) => {
     logger.error(`Cannot connect to SQL Server: ${err?.message}`);

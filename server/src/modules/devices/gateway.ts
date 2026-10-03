@@ -77,12 +77,17 @@ async function sync() {
   for (const [id, r] of want) if (!conns.has(id)) conns.set(id, connect(id, r.device_name, r.host, Number(r.port), r.init_hex ?? null, r.start_hex ?? null));
 }
 
-export function startGateway(): void {
-  if (process.env.GATEWAY_ENABLED !== '1') { logger.info('RFID gateway off (set GATEWAY_ENABLED=1 on ONE server process to enable)'); return; }
+export function startGateway(): (() => void) | void {
+  if (process.env.GATEWAY_ENABLED !== '1') { logger.info('RFID gateway off (set GATEWAY_ENABLED=1 on the servers allowed to run it)'); return; }
   const tick = () => void sync().catch((e) => logger.error(`RFID gateway sync failed: ${(e as Error).message}`));
   tick();
-  setInterval(tick, SYNC_MS).unref();
-  setInterval(() => void q(`DELETE FROM DeviceEvents WHERE received_at < DATEADD(DAY, -30, SYSUTCDATETIME())`).catch(() => undefined), 6 * 3600_000).unref();
-  setInterval(() => void purgeCooldowns(), 6 * 3600_000).unref();
+  const timers = [
+    setInterval(tick, SYNC_MS),
+    setInterval(() => void q(`DELETE FROM DeviceEvents WHERE received_at < DATEADD(DAY, -30, SYSUTCDATETIME())`).catch(() => undefined), 6 * 3600_000),
+    setInterval(() => void purgeCooldowns(), 6 * 3600_000),
+  ];
+  timers.forEach((t) => t.unref());
   logger.info('RFID gateway on');
+  // losing the lease: drop every reader connection so the server that takes over can connect (a reader accepts ONE connection)
+  return () => { timers.forEach(clearInterval); for (const [id, c] of conns) { c.stop(); conns.delete(id); } };
 }
